@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import type { ChecklistData } from '../services/fencingChat'
+import { CARD_STEP_MS, getActiveCardIndex } from '../utils/checklist'
 import { ChecklistRows } from './ChecklistRows'
 
 type CardState = 'done' | 'active' | 'pending'
@@ -7,18 +9,6 @@ function buildFirstCardLabel(description: string) {
   const trimmed = description.trim()
   const excerpt = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed
   return excerpt ? `Reading "${excerpt}"` : 'Reading your project details'
-}
-
-// Which of the 4 cards is "active" right now — derived entirely from data the workflow already
-// sends on every turn (checklist / checklistComplete), not a fake timer. There's no streaming
-// endpoint (single request/response), so this can only reflect what the LAST response told us —
-// it can't animate sub-steps mid-request, only jump forward once a new response lands.
-function getActiveCardIndex(checklist: ChecklistData | null, checklistComplete: boolean, awaitingResult: boolean) {
-  if (awaitingResult) return 3
-  if (!checklist) return 0
-  if (Object.values(checklist).some((value) => value === null)) return 1
-  if (!checklistComplete) return 2
-  return 3
 }
 
 // What the expanded/active card shows inside itself — the real checklist for the "gathering
@@ -54,6 +44,18 @@ export function ThinkingScreen({
   const activeIndex = getActiveCardIndex(checklist, checklistComplete, awaitingResult)
   const isComparing = intent === 'compare_quote'
 
+  // Every time this screen mounts (i.e. every single loading moment), replay the journey from
+  // card 0 up to wherever we actually are — one card at a time, a beat apart — instead of jumping
+  // straight to the current state. That's what makes each answer feel like real progress rather
+  // than an instant snap: the user watches the same "story" build up again, then sees the new bit.
+  const [displayedIndex, setDisplayedIndex] = useState(0)
+
+  useEffect(() => {
+    if (displayedIndex >= activeIndex) return
+    const timer = setTimeout(() => setDisplayedIndex((i) => i + 1), CARD_STEP_MS)
+    return () => clearTimeout(timer)
+  }, [displayedIndex, activeIndex])
+
   const cards = [
     buildFirstCardLabel(description),
     'Gathering your fencing details',
@@ -61,13 +63,18 @@ export function ThinkingScreen({
     isComparing ? 'Comparing your quote against the market' : 'Finding your best local matches',
   ]
 
-  const heading = activeIndex === 3 ? (isComparing ? 'Comparing your quote' : 'Finalising your quote') : 'Analysing your project'
-  const subheading =
-    activeIndex === 3
-      ? isComparing
+  const stages = [
+    { heading: 'Analysing your project', sub: "Our AI is reading through what you've told us so far." },
+    { heading: 'Gathering your fencing details', sub: "Working out what we already know, and what's still missing." },
+    { heading: 'Confirming your details', sub: 'Just double-checking everything before we search.' },
+    {
+      heading: isComparing ? 'Comparing your quote' : 'Finalising your quote',
+      sub: isComparing
         ? "We're lining up your quote against other local businesses."
-        : "We're matching you with the best local fencing businesses."
-      : 'Our AI is working through your project details.'
+        : "We're matching you with the best local fencing businesses.",
+    },
+  ]
+  const { heading, sub: subheading } = stages[displayedIndex]
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-4 pb-24 animate-[fade-in-up_0.4s_ease-out]">
@@ -79,21 +86,22 @@ export function ThinkingScreen({
       </div>
 
       <div className="mb-12 flex max-w-2xl flex-col items-center gap-4 text-center">
-        <h1 className="text-5xl leading-tight font-semibold tracking-tight text-[#062D27]">{heading}</h1>
-        <p className="text-xl text-gray-500">{subheading}</p>
+        <h1 className="text-5xl leading-tight font-semibold tracking-tight text-[#062D27] transition-all duration-300">
+          {heading}
+        </h1>
+        <p className="text-xl text-gray-500 transition-all duration-300">{subheading}</p>
       </div>
 
       <div className="flex w-full max-w-md flex-col gap-3">
         {cards.map((label, i) => {
-          const state: CardState = i < activeIndex ? 'done' : i === activeIndex ? 'active' : 'pending'
+          const state: CardState = i < displayedIndex ? 'done' : i === displayedIndex ? 'active' : 'pending'
 
           return (
             <div
               key={label}
-              style={{ transitionDelay: `${i * 60}ms` }}
               className={`flex flex-col rounded-2xl border p-4 transition-all duration-500 ${
                 state === 'active'
-                  ? 'scale-[1.02] border-gray-100 bg-white shadow-md'
+                  ? 'scale-[1.03] border-[#062D27]/30 bg-white shadow-lg ring-1 ring-[#062D27]/10'
                   : state === 'done'
                     ? 'border-gray-100 bg-white shadow-sm'
                     : 'border-gray-50 bg-white/30 opacity-40'
@@ -102,22 +110,21 @@ export function ThinkingScreen({
               <div className="flex items-center gap-4">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center">
                   {state === 'done' && (
-                    <span
-                      style={{ animationDelay: `${i * 80}ms` }}
-                      className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 animate-[pop-in_0.4s_ease-out_backwards]"
-                    >
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 animate-[pop-in_0.35s_ease-out]">
                       <svg viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth={2} className="h-4 w-4">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
                     </span>
                   )}
                   {state === 'active' && (
-                    <span className="h-2 w-2 rounded-full bg-[#00261C] animate-[dot-pulse_1s_ease-in-out_infinite]" />
+                    <span className="h-2 w-2 rounded-full bg-[#062D27] animate-[dot-pulse_1s_ease-in-out_infinite]" />
                   )}
                   {state === 'pending' && <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />}
                 </span>
                 <span
-                  className={`text-sm font-medium transition-colors duration-300 ${state === 'pending' ? 'text-gray-500' : 'text-[#062D27]'}`}
+                  className={`text-sm font-medium transition-colors duration-300 ${
+                    state === 'active' ? 'text-[#062D27] font-semibold' : state === 'pending' ? 'text-gray-500' : 'text-[#062D27]'
+                  }`}
                 >
                   {label}
                 </span>

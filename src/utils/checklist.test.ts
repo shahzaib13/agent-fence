@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checklistFieldLabel, formatChecklistValue } from './checklist'
+import { checklistFieldLabel, formatChecklistValue, getActiveCardIndex } from './checklist'
 
 describe('checklistFieldLabel', () => {
   it('maps a known key to its human label', () => {
@@ -25,5 +25,27 @@ describe('formatChecklistValue', () => {
 
   it('returns an empty string for null', () => {
     expect(formatChecklistValue('suburb', null)).toBe('')
+  })
+})
+
+describe('getActiveCardIndex', () => {
+  it('rests on card 0 before any checklist is known', () => {
+    expect(getActiveCardIndex(null, false, false)).toBe(0)
+  })
+
+  it('rests on card 1 while any field is still missing', () => {
+    expect(getActiveCardIndex({ suburb: 'Berwick', fenceType: null }, false, false)).toBe(1)
+  })
+
+  it('rests on card 2 once every field is known but not yet confirmed', () => {
+    expect(getActiveCardIndex({ suburb: 'Berwick', fenceType: 'Timber' }, false, false)).toBe(2)
+  })
+
+  it('jumps straight to card 3 while awaiting the final result, regardless of checklist state', () => {
+    expect(getActiveCardIndex(null, false, true)).toBe(3)
+  })
+
+  it('rests on card 3 once checklistComplete is true', () => {
+    expect(getActiveCardIndex({ suburb: 'Berwick', fenceType: 'Timber' }, true, false)).toBe(3)
   })
 })

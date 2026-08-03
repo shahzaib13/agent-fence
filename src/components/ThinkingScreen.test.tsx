@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ThinkingScreen } from './ThinkingScreen'
 
@@ -31,17 +31,20 @@ describe('ThinkingScreen', () => {
     expect(screen.getByText('Confirming your details')).toBeInTheDocument()
   })
 
-  it('shows the new-quote finishing card once awaiting the final result', () => {
+  it('shows the new-quote finishing card once awaiting the final result', async () => {
     render(<ThinkingScreen description="" checklist={fullChecklist} checklistComplete awaitingResult intent="new_quote" />)
 
-    expect(screen.getByRole('heading', { name: 'Finalising your quote' })).toBeInTheDocument()
+    // The reveal replays from card 0 rather than jumping straight there — real progress, not a snap.
+    expect(screen.getByRole('heading', { name: 'Analysing your project' })).toBeInTheDocument()
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Finalising your quote' })).toBeInTheDocument())
     expect(screen.getByText('Finding your best local matches')).toBeInTheDocument()
   })
 
-  it('shows the comparison-specific finishing card for the compare_quote intent', () => {
+  it('shows the comparison-specific finishing card for the compare_quote intent', async () => {
     render(<ThinkingScreen description="" checklist={fullChecklist} checklistComplete awaitingResult intent="compare_quote" />)
 
-    expect(screen.getByRole('heading', { name: 'Comparing your quote' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Comparing your quote' })).toBeInTheDocument())
     expect(screen.getByText('Comparing your quote against the market')).toBeInTheDocument()
   })
 })

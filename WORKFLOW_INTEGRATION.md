@@ -155,6 +155,22 @@ next turn, once the user has replied `"yes"`.
 Both `Fencing AI Agent1` (new_quote) and `Intent & Quote-Compare Agent`
 (compare_quote) implement this same pattern now.
 
+### Multiple quotes in one compare-quote attachment
+
+If the attached content for a `compare_quote` conversation contains more
+than one distinct price (several businesses' quotes on one document, or
+several documents each with their own price), `Intent & Quote-Compare Agent`
+confirms each one individually — reusing the exact same `type: 'confirmation'`
+mechanism above, once per quote (`"Quote 1 of 3 — A Plus Fencing: $2400. Is
+this correct?"`, then `"Quote 2 of 3 — ..."`, etc., with `existingPrice: null`
+in the checklist until all of them are done). No new frontend component or
+schema field was needed for this — the frontend just renders whatever
+`message`/`options` it's given, same as any other confirmation turn. Once
+every quote is confirmed, `existingPrice` is set to the **lowest** of the
+confirmed prices (the hardest one to beat, and the most meaningful savings
+baseline) before the flow continues as normal. If only one price is found,
+none of this applies — it's the same single-`existingPrice` flow as before.
+
 ### Option values are not always strings
 
 Most MCQ options carry a `number` or `boolean` `value` (e.g. `{"label":

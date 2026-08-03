@@ -505,6 +505,43 @@ describe('Home', () => {
     expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThan(0)
   })
 
+  it('keeps showing the last-known checklist even when a later turn omits it entirely', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'confirmation',
+      message: 'Got it — Berwick, Timber, 20m. All correct?',
+      options: [
+        { label: "Yes, that's all correct", value: 'yes' },
+        { label: "No, something's wrong", value: 'no' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: { suburb: 'Berwick', fenceType: 'Timber', lengthMeters: 20 },
+      checklistComplete: false,
+    })
+
+    render(<Home />)
+    await user.type(screen.getByLabelText(/describe your construction project/i), 'Timber fence in Berwick, 20m')
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+    await waitFor(() => expect(screen.getByText(/all correct\?/i)).toBeInTheDocument())
+
+    // No `checklist` field at all on this turn — a plain aside/acknowledgement.
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'No worries — what should I fix?',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.click(screen.getByRole('button', { name: /no, something's wrong/i }))
+
+    await waitFor(() => expect(screen.getByText(/what should i fix/i)).toBeInTheDocument())
+    expect(screen.getByText('Building your brief')).toBeInTheDocument()
+    expect(screen.getAllByText('Suburb: Berwick').length).toBeGreaterThan(0)
+  })
+
   it('sends a typo\'d description straight to n8n too, no local keyword classification', async () => {
     const user = userEvent.setup()
     mockedSend.mockResolvedValueOnce({

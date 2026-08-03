@@ -17,6 +17,7 @@ import {
   type ComparisonSummary,
   type WorkerMatch,
 } from '../services/fencingChat'
+import { CARD_STEP_MS, getActiveCardIndex } from '../utils/checklist'
 import { generateId } from '../utils/id'
 
 type Stage = 'hero' | 'coming-soon' | 'out-of-scope' | 'quiz'
@@ -26,6 +27,16 @@ const LIVE_PROJECT_TYPE = 'Fence'
 
 function buildPrefill(type: string) {
   return `I need a ${type.toLowerCase()} — `
+}
+
+// After a response lands, hold the ThinkingScreen open long enough for its card-by-card replay
+// (see CARD_STEP_MS) to actually finish playing before swapping to the next screen — otherwise a
+// fast n8n reply would cut the reveal off mid-animation, right back to feeling like an instant snap.
+const REVEAL_BUFFER_MS = 350
+const MIN_HOLD_MS = 600
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export function Home() {
@@ -49,16 +60,20 @@ export function Home() {
   const [checklist, setChecklist] = useState<ChecklistData | null>(null)
   const [checklistComplete, setChecklistComplete] = useState(false)
 
-  async function sendMessage(apiText: string, quoteFiles?: File[] | null) {
+  async function sendMessage(apiText: string, quoteFiles?: File[] | null, isFinalConfirm = false) {
     setIsLoading(true)
     setHasError(false)
+    const requestStartedAt = Date.now()
     try {
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles)
       setCurrentMessage(response.message)
       setCurrentType(response.type)
       setCurrentIntent(response.intent)
       setCurrentOptions(response.type === 'question' || response.type === 'confirmation' ? response.options : null)
-      setChecklist(response.checklist ?? null)
+      // Only overwrite when this turn actually carries a checklist — a "what should I fix?"
+      // acknowledgement or similar aside may legitimately omit it. Keeping the last-known
+      // checklist means the sidebar never blanks out mid-conversation.
+      if (response.checklist) setChecklist(response.checklist)
       setChecklistComplete(response.checklistComplete ?? false)
       // Page routing (comparison vs. new-quote flow) depends only on `intent`. `type`
       // never decides which page shows — it just describes the payload (result/message/
@@ -75,6 +90,14 @@ export function Home() {
       } else if (response.type !== 'confirmation') {
         setQuestionNumber((n) => n + 1)
       }
+
+      // How many of the 4 thinking-screen cards this turn's reveal needs to step through —
+      // hold the loading state open at least that long (minus whatever the request itself
+      // already took) so the card-by-card replay finishes before we swap to the next screen.
+      const targetCardIndex = getActiveCardIndex(response.checklist ?? checklist, response.checklistComplete ?? false, isFinalConfirm)
+      const desiredHoldMs = Math.max(MIN_HOLD_MS, targetCardIndex * CARD_STEP_MS + REVEAL_BUFFER_MS)
+      const elapsedMs = Date.now() - requestStartedAt
+      if (elapsedMs < desiredHoldMs) await sleep(desiredHoldMs - elapsedMs)
     } catch (error) {
       console.error('Fencing chat webhook request failed:', error)
       setHasError(true)
@@ -89,11 +112,14 @@ export function Home() {
   }
 
   const handleConfirmationSelect = (option: ChatOption) => {
+    const isYes = String(option.value) === 'yes'
     // Flagged *before* the request goes out so the ThinkingScreen shows the "finalising" card
     // for this specific wait, instead of falling back to "confirming your details" (which is
-    // what the last-known checklist/checklistComplete state would otherwise imply).
-    if (String(option.value) === 'yes') setAwaitingResult(true)
-    void sendMessage(String(option.value))
+    // what the last-known checklist/checklistComplete state would otherwise imply). Passed into
+    // sendMessage explicitly too, since the state update above hasn't re-rendered yet when the
+    // hold-time calculation below runs — reading `awaitingResult` there would still see `false`.
+    if (isYes) setAwaitingResult(true)
+    void sendMessage(String(option.value), undefined, isYes)
   }
 
   const handleHeroSubmit = (quoteFiles: File[]) => {
