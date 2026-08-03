@@ -1,0 +1,146 @@
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1195px;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1195px;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+position: relative;
+width: 1280px;
+height: 1024px;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1195px;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1159px;
+overflow-y: scroll;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1055.5px;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1159px;
+overflow-y: scroll;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1055.5px;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1114px;
+overflow-y: scroll;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;
+
+
+/* Html → Body */
+
+/* Auto layout */
+display: flex;
+flex-direction: column;
+align-items: flex-start;
+padding: 0px;
+
+position: relative;
+width: 1280px;
+height: 1358px;
+overflow-y: scroll;
+
+background: linear-gradient(0deg, #FCFDFD, #FCFDFD), #FFFFFF;

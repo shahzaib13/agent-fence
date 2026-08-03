@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { AIRecommendationPanel } from '../components/AIRecommendationPanel'
+import { ChecklistPanel } from '../components/ChecklistPanel'
 import { ComingSoonScreen } from '../components/ComingSoonScreen'
-import { EstimateSidebar } from '../components/EstimateSidebar'
+import { ConfirmationCard } from '../components/ConfirmationCard'
 import { Header } from '../components/Header'
 import { HeroInputScreen } from '../components/HeroInputScreen'
 import { OutOfScopeScreen } from '../components/OutOfScopeScreen'
@@ -12,12 +13,13 @@ import { ThinkingScreen } from '../components/ThinkingScreen'
 import {
   sendFencingChatMessage,
   type ChatOption,
+  type ChecklistData,
   type ComparisonSummary,
   type WorkerMatch,
 } from '../services/fencingChat'
 import { generateId } from '../utils/id'
 
-type Stage = 'hero' | 'coming-soon' | 'out-of-scope' | 'thinking' | 'quiz'
+type Stage = 'hero' | 'coming-soon' | 'out-of-scope' | 'quiz'
 
 // Only Fence is wired to a real backend today — every other type gets the "coming soon" screen.
 const LIVE_PROJECT_TYPE = 'Fence'
@@ -33,6 +35,8 @@ export function Home() {
   const [sessionId, setSessionId] = useState(() => generateId())
   const [currentMessage, setCurrentMessage] = useState('')
   const [currentOptions, setCurrentOptions] = useState<ChatOption[] | null>(null)
+  const [currentType, setCurrentType] = useState<string | null>(null)
+  const [currentIntent, setCurrentIntent] = useState<'new_quote' | 'compare_quote' | undefined>(undefined)
   const [hasError, setHasError] = useState(false)
   const [lastFailedText, setLastFailedText] = useState<string | null>(null)
   const [lastFailedFiles, setLastFailedFiles] = useState<File[] | null>(null)
@@ -40,7 +44,10 @@ export function Home() {
   const [avgRatePerMeter, setAvgRatePerMeter] = useState<number | null>(null)
   const [comparison, setComparison] = useState<ComparisonSummary | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [awaitingResult, setAwaitingResult] = useState(false)
   const [questionNumber, setQuestionNumber] = useState(0)
+  const [checklist, setChecklist] = useState<ChecklistData | null>(null)
+  const [checklistComplete, setChecklistComplete] = useState(false)
 
   async function sendMessage(apiText: string, quoteFiles?: File[] | null) {
     setIsLoading(true)
@@ -48,7 +55,11 @@ export function Home() {
     try {
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles)
       setCurrentMessage(response.message)
-      setCurrentOptions(response.type === 'question' ? response.options : null)
+      setCurrentType(response.type)
+      setCurrentIntent(response.intent)
+      setCurrentOptions(response.type === 'question' || response.type === 'confirmation' ? response.options : null)
+      setChecklist(response.checklist ?? null)
+      setChecklistComplete(response.checklistComplete ?? false)
       // Page routing (comparison vs. new-quote flow) depends only on `intent`. `type`
       // never decides which page shows — it just describes the payload (result/message/
       // question/etc.) within whichever flow `intent` has already picked. Guarded by
@@ -61,7 +72,7 @@ export function Home() {
       } else if (response.type === 'result') {
         setResults(response.results)
         setAvgRatePerMeter(response.avgRatePerMeter)
-      } else {
+      } else if (response.type !== 'confirmation') {
         setQuestionNumber((n) => n + 1)
       }
     } catch (error) {
@@ -73,7 +84,16 @@ export function Home() {
       setCurrentOptions(null)
     } finally {
       setIsLoading(false)
+      setAwaitingResult(false)
     }
+  }
+
+  const handleConfirmationSelect = (option: ChatOption) => {
+    // Flagged *before* the request goes out so the ThinkingScreen shows the "finalising" card
+    // for this specific wait, instead of falling back to "confirming your details" (which is
+    // what the last-known checklist/checklistComplete state would otherwise imply).
+    if (String(option.value) === 'yes') setAwaitingResult(true)
+    void sendMessage(String(option.value))
   }
 
   const handleHeroSubmit = (quoteFiles: File[]) => {
@@ -88,14 +108,16 @@ export function Home() {
       setStage('coming-soon')
       return
     }
-    setStage('thinking')
-    void sendMessage(description, quoteFiles).finally(() => setStage('quiz'))
+    setStage('quiz')
+    void sendMessage(description, quoteFiles)
   }
 
   const handleRestart = () => {
     setSessionId(generateId())
     setCurrentMessage('')
     setCurrentOptions(null)
+    setCurrentType(null)
+    setCurrentIntent(undefined)
     setHasError(false)
     setLastFailedText(null)
     setLastFailedFiles(null)
@@ -105,6 +127,9 @@ export function Home() {
     setDescription('')
     setSelectedType(null)
     setQuestionNumber(0)
+    setChecklist(null)
+    setChecklistComplete(false)
+    setAwaitingResult(false)
     setStage('hero')
   }
 
@@ -116,7 +141,7 @@ export function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#FCFDFD]">
-      <Header dimmed={stage === 'thinking'} />
+      <Header dimmed={isLoading} />
 
       {stage === 'hero' && (
         <HeroInputScreen
@@ -141,10 +166,18 @@ export function Home() {
 
       {stage === 'out-of-scope' && <OutOfScopeScreen onBack={handleRestart} />}
 
-      {stage === 'thinking' && <ThinkingScreen />}
+      {stage === 'quiz' && isLoading && !results && (
+        <ThinkingScreen
+          description={description}
+          checklist={checklist}
+          checklistComplete={checklistComplete}
+          awaitingResult={awaitingResult}
+          intent={currentIntent}
+        />
+      )}
 
-      {stage === 'quiz' && (
-        <div className="flex flex-1 flex-col items-center px-4 pt-16 pb-24">
+      {stage === 'quiz' && (!isLoading || results) && (
+        <div className="flex flex-1 flex-col items-center px-4 pt-16 pb-24 animate-[fade-in-up_0.4s_ease-out]">
           <div className="mb-10 flex max-w-2xl flex-col items-center gap-2 text-center">
             <h1 className="text-4xl leading-tight font-semibold tracking-tight text-[#062D27]">
               {results ? 'Matching your project with local specialists.' : "Let's find your perfect match."}
@@ -159,25 +192,32 @@ export function Home() {
           <div className="grid w-full max-w-6xl grid-cols-1 gap-8 lg:grid-cols-[1fr_400px]">
             {results ? (
               <ResultsPanel results={results} avgRatePerMeter={avgRatePerMeter} onRestart={handleRestart} />
+            ) : currentType === 'confirmation' && checklist ? (
+              <ConfirmationCard
+                message={currentMessage}
+                checklist={checklist}
+                options={currentOptions ?? []}
+                onSelectOption={handleConfirmationSelect}
+              />
             ) : (
               <QuizCard
                 questionNumber={questionNumber}
                 message={currentMessage}
                 options={currentOptions}
-                isLoading={isLoading}
+                checklist={checklist}
                 hasError={hasError}
                 onSend={sendMessage}
-                onSelectOption={(option) => sendMessage(option.value)}
+                onSelectOption={(option) => sendMessage(String(option.value))}
                 onRetry={() => lastFailedText && sendMessage(lastFailedText, lastFailedFiles)}
                 onBack={handleRestart}
               />
             )}
-            {results ? <AIRecommendationPanel onModify={handleRestart} /> : <EstimateSidebar />}
+            {results ? <AIRecommendationPanel onModify={handleRestart} /> : <ChecklistPanel checklist={checklist} />}
           </div>
         </div>
       )}
 
-      <footer className={`flex justify-center py-8 transition-opacity ${stage === 'thinking' ? 'opacity-60' : ''}`}>
+      <footer className={`flex justify-center py-8 transition-opacity ${isLoading ? 'opacity-60' : ''}`}>
         <p className="text-xs text-gray-400">
           Photos, PDFs and video walkthroughs are analysed privately. Nothing is shared without your consent.
         </p>

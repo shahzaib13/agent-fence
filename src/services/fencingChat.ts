@@ -2,8 +2,18 @@ import { api } from './api'
 
 export interface ChatOption {
   label: string
-  value: string
+  // The real workflow sends non-string values for most MCQ answers (e.g. `heightMm: 1800`,
+  // `removeOldFence: true`) — only `suburb` is ever free text. n8n's own "Set" node coerces
+  // whatever we echo back in `message` to a string, so this only needs to be accurate here,
+  // not converted before sending.
+  value: string | number | boolean
 }
+
+// Field keys are whatever the workflow's checklist object currently has — new-quote flow
+// sends { suburb, fenceType, lengthMeters, heightMm, removeOldFence, siteAccess }, compare-quote
+// flow sends { suburb, fenceType, lengthMeters, existingPrice }. Kept generic instead of a fixed
+// union so a field being added/renamed on the workflow side doesn't require a frontend type change.
+export type ChecklistData = Record<string, string | number | boolean | null>
 
 export interface WorkerMatch {
   businessName: string
@@ -36,7 +46,7 @@ export interface ComparisonSummary {
 
 export interface FencingChatResponse {
   sessionId: string
-  type: 'message' | 'question' | 'result' | 'comparison_result'
+  type: 'message' | 'question' | 'confirmation' | 'result' | 'comparison_result'
   message: string
   options: ChatOption[]
   results: WorkerMatch[]
@@ -45,12 +55,23 @@ export interface FencingChatResponse {
   // Present once n8n's intent-router adds it to its final response nodes. Kept optional
   // since older/other branches may still omit it — routing falls back to `type` when absent.
   intent?: 'new_quote' | 'compare_quote'
+  // Running checklist of collected project fields, echoed back on every message/question turn
+  // (null once a `result`/`comparison_result` fires). Absent entirely on very old workflow
+  // versions, hence optional.
+  checklist?: ChecklistData | null
+  checklistComplete?: boolean
 }
 
-const FENCING_CHAT_WEBHOOK_URL =
-  import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL ?? 'https://n8n.srv1506542.hstgr.cloud/webhook/fencing-chat-api'
+// Vite's built-in DEV/PROD flags (true for `npm run dev`, false for a production build like
+// Vercel's) pick the right n8n endpoint automatically — the test webhook locally, the real one
+// once deployed. `VITE_FENCING_CHAT_WEBHOOK_URL` still overrides either if ever needed.
+const DEFAULT_FENCING_CHAT_WEBHOOK_URL = import.meta.env.DEV
+  ? 'https://n8n.srv1506542.hstgr.cloud/webhook-test/fencing-chat-api'
+  : 'https://n8n.srv1506542.hstgr.cloud/webhook/fencing-chat-api'
 
-const VALID_TYPES = ['message', 'question', 'result', 'comparison_result']
+const FENCING_CHAT_WEBHOOK_URL = import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL ?? DEFAULT_FENCING_CHAT_WEBHOOK_URL
+
+const VALID_TYPES = ['message', 'question', 'confirmation', 'result', 'comparison_result']
 
 export async function sendFencingChatMessage(
   message: string,

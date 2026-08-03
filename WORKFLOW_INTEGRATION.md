@@ -1,142 +1,234 @@
 # Fencing AI Agent — n8n Integration
 
-How this React app talks to the n8n "Fencing AI Agent" workflow. The workflow
-itself lives in a separate repo/folder (`all thing claude/workflows/fencing-ai-agent.json`)
-— this doc is the contract between that workflow and this frontend, so UI
-work here can start without needing n8n open side by side.
+How this React app talks to the n8n "Fencing AI Agent" workflow. This doc
+describes the workflow as it actually is today, exported at
+`n8n/fencing-workflow-updated.json` in this repo — read that file's node
+names if you need to trace something back to the source. A "Known issues"
+section at the bottom lists real bugs found in the current export.
 
 ## What the workflow does
 
 One webhook. You send a chat message + a session id, it sends back one of
-three response shapes: a normal chat reply, a multiple-choice question, or a
-final result (top matching fencing businesses + pricing). The agent gathers
-a 6-item checklist (suburb, fence type, length, height, old-fence removal,
-site access) conversationally, then a deterministic step (not the LLM) looks
-up real businesses in Firebase and computes pricing.
+five response shapes: a normal chat reply, a multiple-choice question, a
+**confirmation** turn (recaps the whole checklist and asks yes/no before
+proceeding), a final new-quote result (top matching fencing businesses +
+pricing), or a final quote-comparison result. Two separate LLM agents run
+the conversation:
 
-**Not live yet:** Firebase isn't populated/connected on the workflow side
-yet, so `result`-type responses will come back with an empty `results` array
-until that's done. Don't read an empty result as a frontend bug while
-testing early.
+- **`Intent & Quote-Compare Agent`** — runs first, every turn. Decides
+  `intent`: `new_quote` (the default) or `compare_quote` (only when the user
+  explicitly asks to beat/compare an existing price — attaching a quote
+  document alone does *not* count). If `new_quote`, it hands off immediately
+  and does nothing else. If `compare_quote`, it gathers a 4-item checklist
+  (`suburb`, `fenceType`, `lengthMeters`, `existingPrice` — the last one
+  optional, never blocks completion) and runs the comparison once complete.
+- **`Fencing AI Agent1`** — runs the `new_quote` conversation, gathering a
+  6-item checklist (`suburb`, `fenceType`, `lengthMeters`, `heightMm`,
+  `removeOldFence`, `siteAccess`).
+
+Once a checklist is complete, a deterministic step (not the LLM) ranks
+businesses and computes pricing — **currently against a ~145KB hard-coded
+dummy dataset** (`Dummy Firebase Workers Data1` node), not a real database.
+The one node that would hit a real Firestore lookup
+(`Query Firestore Workers1`) is disabled and has no incoming connection —
+don't expect "live" business data until that's wired up and enabled.
 
 ## Endpoint
 
 ```
-POST {N8N_BASE_URL}/webhook/fencing-chat-api      # production (after the workflow is Activated)
-POST {N8N_BASE_URL}/webhook-test/fencing-chat-api # while testing from the n8n editor, before activating
+POST {N8N_BASE_URL}/webhook/fencing-chat-api
 ```
 
-`N8N_BASE_URL` is whatever host your n8n instance runs on (n8n Cloud
-subdomain, or self-hosted URL) — ask for it if it's not been shared yet, it's
-not something to guess into an env file.
+Node: `Webhook (React Input)2`. `responseMode: "responseNode"` — the actual
+HTTP response is whatever the single `Respond to Webhook1` node emits, not
+an immediate ack. No `authentication` set, CORS `allowedOrigins: "*"`. Same
+env-var/production notes as before: ask for `N8N_BASE_URL` if not shared,
+narrow CORS before going live.
 
-Headers: `Content-Type: application/json`. No auth header — the webhook is
-currently open (`allowedOrigins: "*"` on the n8n side). Fine for dev; narrow
-that to this app's real domain once there's a production URL, and revisit
-whether the endpoint needs its own auth before going live.
+(There's also a `When chat message received` trigger — that's n8n's own Chat
+UI test trigger, not the one this app calls.)
 
 ## Request body
 
 ```ts
 interface FencingChatRequest {
-  message: string;   // free text, OR the `value` of a clicked MCQ option — see "Answering a question" below
-  sessionId: string;
+  message: string   // free text, OR an MCQ option's `value` coerced to a string — see below
+  sessionId: string  // generated client-side, unchanged for the whole conversation
 }
 ```
 
-`sessionId`: one per conversation, generated client-side
-(`crypto.randomUUID()`), sent unchanged on every message in that
-conversation. It's the key n8n's chat memory uses to remember prior turns —
-a new id starts a fresh conversation with no memory of the old one. Chat
-memory is in-memory on the n8n side for now (not persisted to a database),
-so it resets if the n8n instance restarts — don't build any assumption of
-infinite/durable history into the frontend.
+Chat memory (`Chat Memory (Window Buffer)1` for new-quote, `Chat Memory
+(Compare Flow)` for compare) is a 10-message rolling window keyed by
+`sessionId`, in-memory only — resets if the n8n instance restarts, and can in
+principle lose a checklist value if the conversation runs past the window
+(the agent is prompted to always re-echo known values, but nothing outside
+the LLM's own output actually guarantees this).
+
+### Multi-file uploads
+
+The frontend can attach multiple files under repeated `quoteFile` multipart
+fields in the same request. `Split Attachments by Binary Key` fans these out,
+routes each to PDF-text-extraction or vision-based image extraction, then
+**all extracted text is joined into a single combined string** (truncated to
+4000 characters) and sent to the LLM in **one** turn. There is no
+per-document confirmation step and no mechanism for "confirm document 1,
+then document 2" — it's all-or-nothing per request today.
 
 ## Response body
 
-Always one JSON object, one of three shapes based on `type`:
-
 ```ts
-type FencingChatResponse =
-  | {
-      type: 'message';
-      sessionId: string;
-      message: string;       // render as a normal chat bubble
-      options: [];
-      results: [];
-      avgRatePerMeter: null;
-    }
-  | {
-      type: 'question';
-      sessionId: string;
-      message: string;                              // the question text
-      options: { label: string; value: string }[];   // render as buttons/chips, 2-5 of them
-      results: [];
-      avgRatePerMeter: null;
-    }
-  | {
-      type: 'result';
-      sessionId: string;
-      message: string;   // friendly intro line (or a "no matches" note if results is empty)
-      options: [];
-      results: {
-        businessName: string;
-        ratePerMeter: number;
-        estimatedTotal: number;
-        notes: string;    // e.g. "standard height 1800mm, + $24/m for old fence removal" — may be empty string
-      }[];
-      avgRatePerMeter: number | null;
-    };
+type FencingChatResponse = {
+  sessionId: string
+  type: 'message' | 'question' | 'confirmation' | 'result' | 'comparison_result'
+  message: string
+  options: { label: string; value: string | number | boolean }[]
+  results: { businessName: string; ratePerMeter: number; estimatedTotal: number; notes: string }[]
+  avgRatePerMeter: number | null
+  comparison?: {
+    potentialSavings: number | null
+    marketAverage: number | null
+    totalQuotesScreened: number
+    userExistingPrice: number | null
+    quotes: {
+      businessName: string; ratePerMeter: number
+      projectTotalMin: number; projectTotalMax: number
+      leadTimeWeeksMin: number; leadTimeWeeksMax: number
+      badges: string[]; tag: string | null; savingsFromAverage: number | null
+    }[]
+  } | null
+  intent?: 'new_quote' | 'compare_quote'   // see "Known issues" — not present on every turn
+  checklist?: Record<string, string | number | boolean | null> | null
+  checklistComplete?: boolean
+}
 ```
 
-`results` is already sorted cheapest-first and capped at 3 — no
-client-side sorting/slicing needed.
+### `checklist` — the important field for the frontend's live progress UI
+
+Every `message`/`question`/`confirmation` turn echoes the full checklist
+object back, partially filled in (unknown fields are `null`). This is the
+*only* progress signal that exists today — there is no separate stage/status
+endpoint, so `ThinkingScreen` (`src/components/ThinkingScreen.tsx`) derives
+which of its 4 cards is "active" directly from this field plus
+`checklistComplete` (see below), instead of a fake timer.
+
+Two different shapes depending on `intent`:
+- `new_quote`: `{ suburb, fenceType, lengthMeters, heightMm, removeOldFence, siteAccess }`
+- `compare_quote`: `{ suburb, fenceType, lengthMeters, existingPrice }`
+
+The frontend treats `checklist` as an untyped `Record<string, string | number
+| boolean | null>` (`ChecklistData` in `fencingChat.ts`) rather than hardcoding
+either field set, so it won't need a code change if a field is renamed/added.
+Labels shown in the UI come from a small local map
+(`src/utils/checklist.ts`'s `FIELD_LABELS`) — if you add a new checklist
+field on the workflow side, add its label there too or it'll just fall back
+to showing the raw key.
+
+### `type: 'confirmation'` — the recap-and-yes/no turn
+
+Once every checklist field is known (whichever flow), the workflow does
+**not** immediately set `checklistComplete: true`. It first sends one
+`type: 'confirmation'` turn: a short recap `message`, the fully-filled
+`checklist`, and `options` that MUST be exactly:
+
+```json
+[{ "label": "Yes, that's all correct", "value": "yes" }, { "label": "No, something's wrong", "value": "no" }]
+```
+
+The frontend renders this as a distinct `ConfirmationCard`
+(`src/components/ConfirmationCard.tsx` — title text + the checklist as a
+bullet list + the two buttons), not the normal MCQ tile grid. The two option
+`value`s must stay the literal lowercase strings `"yes"`/`"no"` — the
+frontend doesn't special-case this turn by `type` alone for the *button*
+styling, but `checklistComplete` genuinely only flips to `true` on the very
+next turn, once the user has replied `"yes"`.
+
+- **`"yes"`** → next response is an ordinary `type: 'message'` with
+  `checklistComplete: true` (the short handoff line), then the deterministic
+  ranking step runs as before.
+- **`"no"`** → next response is an ordinary `type: 'message'` asking what to
+  fix (`options: []`, free text). Whatever the user says next either directly
+  supplies a corrected value (checklist updates, workflow goes straight back
+  to a fresh `confirmation` turn) or just names a field with no value (that
+  field is reset to `null`, the normal MCQ for it fires, then back to
+  `confirmation` once answered). This loops until `"yes"`.
+
+Both `Fencing AI Agent1` (new_quote) and `Intent & Quote-Compare Agent`
+(compare_quote) implement this same pattern now.
+
+### Option values are not always strings
+
+Most MCQ options carry a `number` or `boolean` `value` (e.g. `{"label":
+"1800mm", "value": 1800}`, `{"label": "Yes, please remove it", "value":
+true}`) — only `suburb`/`existingPrice`-adjacent free-text fields are
+strings. The frontend converts whatever a clicked option's `value` is to a
+string before sending it back as `message` (`String(option.value)` in
+`Home.tsx`) — n8n's `Normalize Input1` Set node then re-parses it as text
+for the agent same as any typed message.
 
 ### Answering a question
 
-When `type: 'question'`, the user picks one of `options`. Send that option's
-**`value`** (not the `label`) back as `message` on the next request, same
-`sessionId`. The agent reads it as a normal chat message — there's no
-separate "answer a question" endpoint.
+Same as before: send the clicked option's `value` (stringified) back as
+`message` on the next request, same `sessionId`. No separate endpoint.
+
+### MCQ-first by design
+
+Both agents' prompts are explicit: **`suburb` is the only free-text field**
+in both flows (plus the optional `existingPrice` in compare-quote, which is
+never asked for directly). Every other field must come back as 2-5 `options`
+with an exact, prompt-specified label/value set (e.g. fenceType's 6 options,
+lengthMeters' 4 buckets, heightMm's 2 values, etc.) — the workflow is not
+supposed to ever return free text for those fields. If a build ever shows a
+free-text box for something other than suburb, that's the workflow prompt
+misbehaving, not a frontend routing bug (the frontend just renders whatever
+`options` it's given; empty `options` → free text, non-empty → buttons).
 
 ### Errors
 
-There's no separate error shape. If anything fails on the workflow side
-(model call, tool call, or the Firebase lookup), you still get back a normal
-`type: 'message'` response with an apologetic `message` string — render it
-like any other chat bubble, no special-casing needed. The only case this repo
-needs its own error handling for is a real network failure (request never
-reached n8n, or timed out) — wrap the axios call in a try/catch for that,
-same as any other API call in this app.
+Unchanged: no separate error shape. Model/tool/lookup failures still come
+back as an apologetic `type: 'message'`. The frontend only needs its own
+error handling for real network failures (timeout/unreachable).
 
-## Where this plugs into the existing structure
+## Known issues in `n8n/fencing-workflow-updated.json`
 
-Per this repo's `CLAUDE.md`: `src/services/` is where API calls live, and
-Zustand (`src/store/`) is for shared client UI state, not for caching server
-responses. Two things worth deciding when the chat UI actually gets built:
+Historical note — items 1-3 below were found and fixed (1-2 by hand in the
+n8n editor, 3 and the `confirmation` step by this integration work). Kept
+here as a record; only #4 is still open.
 
-- **Don't reuse `src/services/api.ts`'s axios instance as-is** — it points
-  at this app's own backend (`VITE_API_BASE_URL`, defaults to `/api`) and its
-  request interceptor attaches this app's own `authToken`, which has nothing
-  to do with the n8n webhook. A separate small instance/function (e.g.
-  `src/services/fencingAgent.ts`), pointed at its own `VITE_FENCING_AGENT_URL`
-  env var, keeps the two unrelated auth/base-URL concerns from leaking into
-  each other.
-- **Where `sessionId` and the message list live** is a call for whoever
-  builds the chat page — a Zustand store is a reasonable fit for the
-  in-progress conversation (it's live UI state, not a cached server
-  response), but that's a decision for build time, not something this doc
-  is prescribing.
+1. ~~`comparison_result` never actually fires~~ — **fixed**. `Route:
+   New-Quote or Compare Result?`'s doubled `==` (evaluated against the
+   literal string `"=compare_quote"`, never matching) is now a single `=`.
+2. ~~Dangling node reference~~ — **fixed**. `Rank & Format Comparison
+   Response` now reads from `Format Comparison Result` (the node that
+   actually exists), not a non-existent `Parse Comparison JSON`.
+3. ~~`intent` missing on most turns~~ — **fixed**. `Format New-Quote
+   Result1` now sets `intent` from `Format Comparison Result` on every turn,
+   same as the other formatter nodes.
+4. **All quote/comparison data is a static dataset, not live.** `Query
+   Firestore Workers1` is disabled with no incoming connection — every
+   result is computed against `Dummy Firebase Workers Data1`'s hard-coded
+   array. Worth confirming this is expected for now; if "live data" means
+   real Firestore-backed businesses, that's the node to wire up.
 
-## Quick manual test (before any UI exists)
+## Recommended next steps (not required for the current frontend, but the
+frontend is designed to make room for these later)
+
+- **Per-document confirmation for compare-quote uploads.** If multiple
+  existing-quote PDFs should be confirmed one at a time instead of combined
+  into one blob, that's a `Split Attachments by Binary Key` / extraction
+  pipeline change (looping the LLM turn per document using the existing chat
+  memory to track "which document are we up to"), not a frontend change.
+- **A live progress signal**, if fake-but-honest checklist-derived loading
+  (what `ThinkingScreen` does today) isn't dynamic enough — would need a
+  small separate status endpoint/stage write, since this webhook is a single
+  request/response with no streaming.
+
+## Quick manual test
 
 ```bash
-curl -X POST "{N8N_BASE_URL}/webhook-test/fencing-chat-api" \
+curl -X POST "{N8N_BASE_URL}/webhook/fencing-chat-api" \
   -H "Content-Type: application/json" \
   -d '{"message":"hi, need a fence quote","sessionId":"test-1"}'
 ```
 
-Should come back `type: "message"` with a friendly opener. Keep POSTing with
-the same `sessionId`, answering whatever it asks, until you get a `type:
-"result"` (or, right now, a graceful "no matches" `result` — see the
-Firebase note at the top).
+Keep POSTing with the same `sessionId`, answering whatever it asks (send the
+option's `value` back, stringified), until you get `type: "result"`.
