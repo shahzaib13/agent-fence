@@ -62,7 +62,7 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
         message: 'Got everything — here is what I found nearby.',
         options: [],
         results: [
-          { businessName: 'A Plus Fencing', ratePerMeter: 152, estimatedTotal: 3040, notes: 'standard height 1800mm' },
+          { businessName: 'A Plus Fencing', suburb: 'Berwick', ratePerMeter: 152, estimatedTotal: 3040, notes: 'standard height 1800mm' },
         ],
         avgRatePerMeter: 152,
       },

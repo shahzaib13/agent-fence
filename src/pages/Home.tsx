@@ -89,7 +89,11 @@ export function Home() {
         setComparison(response.comparison)
         return
       }
-      if (response.type === 'result') {
+      // A `result` with nothing in it is the workflow explaining why — no business covers their
+      // suburb, or none of the ones that do offer that fence type. That belongs back in the
+      // thread, where they can correct the suburb or fence type in one line, not on an empty
+      // results page where the explanation would never be shown at all.
+      if (response.type === 'result' && response.results.length > 0) {
         setResults(response.results)
         setAvgRatePerMeter(response.avgRatePerMeter)
         setStage('results')

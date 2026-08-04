@@ -17,6 +17,10 @@ export type ChecklistData = Record<string, string | number | boolean | null>
 
 export interface WorkerMatch {
   businessName: string
+  // The customer's own suburb, spelled the way the business's service-area record does.
+  // Optional only so a deployment running an older workflow export degrades to hiding the
+  // line rather than showing a wrong one.
+  suburb?: string
   ratePerMeter: number
   estimatedTotal: number
   notes: string

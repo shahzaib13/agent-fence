@@ -1,35 +1,13 @@
 import type { WorkerMatch } from '../services/fencingChat'
 
-// Decorative only — n8n only sends {businessName, ratePerMeter, estimatedTotal, notes}, so match%,
-// distance, availability and delivery below are static placeholders, not real per-business data.
+// Decorative only — match%, availability and delivery are static placeholders, not real
+// per-business data. The suburb is NOT in here any more: it comes from the response, because
+// a hard-coded one next to a real business name reads as a real service area and sent people
+// to businesses nowhere near them.
 const RESULT_CARD_DETAILS = [
-  {
-    matchPercent: 98,
-    topRated: true,
-    suburb: 'Balmain',
-    distanceKm: 2.4,
-    availability: 'Available Next Week',
-    availabilityHighlight: true,
-    delivery: '2-3 Business Days',
-  },
-  {
-    matchPercent: 92,
-    topRated: false,
-    suburb: 'Rozelle',
-    distanceKm: 3.1,
-    availability: 'Starts July 14',
-    availabilityHighlight: false,
-    delivery: 'Next Day',
-  },
-  {
-    matchPercent: 89,
-    topRated: false,
-    suburb: 'Drummoyne',
-    distanceKm: 5.8,
-    availability: 'Limited slots',
-    availabilityHighlight: false,
-    delivery: '5-7 Business Days',
-  },
+  { matchPercent: 98, topRated: true, availability: 'Available Next Week', availabilityHighlight: true, delivery: '2-3 Business Days' },
+  { matchPercent: 92, topRated: false, availability: 'Starts July 14', availabilityHighlight: false, delivery: 'Next Day' },
+  { matchPercent: 89, topRated: false, availability: 'Limited slots', availabilityHighlight: false, delivery: '5-7 Business Days' },
 ]
 
 export function ResultsPanel({
@@ -52,12 +30,7 @@ export function ResultsPanel({
         </p>
       </div>
 
-      {results.length === 0 ? (
-        <p className="rounded-3xl border border-gray-100 bg-white p-6 text-sm text-gray-500 shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
-          No matches yet for that suburb and fence type — try a nearby suburb or a different fence type.
-        </p>
-      ) : (
-        results.map((r, i) => {
+      {results.map((r, i) => {
           const details = RESULT_CARD_DETAILS[i % RESULT_CARD_DETAILS.length]
           return (
             <div
@@ -85,9 +58,7 @@ export function ResultsPanel({
                         </span>
                       )}
                     </div>
-                    <p className="text-gray-500">
-                      {details.suburb} — {details.distanceKm}km away
-                    </p>
+                    {r.suburb && <p className="text-gray-500">Services {r.suburb}</p>}
                   </div>
                 </div>
                 <button
@@ -116,10 +87,9 @@ export function ResultsPanel({
                   <p className="font-semibold text-[#062D27]">{details.delivery}</p>
                 </div>
               </div>
-            </div>
-          )
-        })
-      )}
+          </div>
+        )
+      })}
 
       <button
         type="button"

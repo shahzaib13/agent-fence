@@ -29,6 +29,49 @@ the conversation:
 Once a checklist is complete, a deterministic step (not the LLM) ranks
 businesses and computes pricing — **currently against a ~145KB hard-coded
 dummy dataset** (`Dummy Firebase Workers Data1` node), not a real database.
+
+### Suburb matching is exact, and it is the first filter
+
+`Rank and Format Top ` used to rank on `fenceType` and `lengthMeters` only —
+`suburb` was collected, echoed back, shown in the sidebar, and then **never
+used**, even though every record in the dataset carries a `serviceSuburbs`
+array. A customer in Pakenham was ranked against every business in the
+dataset that did their fence type, wherever it was.
+
+Both ranking nodes now filter on `serviceSuburbs` before anything else, and
+the match is deliberately **exact** — normalised for case, punctuation, a
+trailing state abbreviation and a postcode (`"Pakenham"`, `"pakenham vic"`,
+`"Pakenham, 3810"` are one place) but never fuzzy or "nearby". A near-miss
+must miss: quoting someone a business that doesn't service them is worse than
+telling them there is nobody.
+
+Each result carries `suburb`, set to the matched entry from the business's own
+`serviceSuburbs` — the customer's suburb, spelled the way the record does. It
+is never one of the business's *other* service suburbs, which would read like
+the wrong job was matched. `ResultsPanel` renders it; it used to print a
+hard-coded `'Balmain'`/`'Rozelle'`/`'Drummoyne'` placeholder next to a real
+business name.
+
+An empty result now distinguishes its two causes via `noMatchReason`:
+`'suburb'` (no business covers it at all) or `'fenceType'` (some do, none in
+that type), and `Format Result Response1` words the message accordingly. The
+frontend keeps a zero-result `type: 'result'` **in the chat thread** instead
+of switching to the results page, so the explanation is actually shown and
+the customer can correct the suburb or fence type in one line.
+
+### Units are converted, not enforced
+
+The checklist stores `heightMm` in millimetres and `lengthMeters` in metres;
+customers do not think in those units and are never asked to. The agent's
+prompt carries an explicit conversion table (`1.8m`/`180cm`/`6ft` → `1800`,
+`20000mm` → `20`) including what to assume when no unit is given at all.
+
+`Format New-Quote Result1` additionally normalises `heightMm` in code: a fence
+runs roughly 600-2400mm, so a value under 10 was metres and one under 100 was
+centimetres — there is no real fence height in those ranges for the guard to
+misread. `lengthMeters` deliberately has **no** such guard: a 600m rural
+boundary is a genuine answer, so there is no out-of-range value to key off,
+and it is left to the prompt.
 The one node that would hit a real Firestore lookup
 (`Query Firestore Workers1`) is disabled and has no incoming connection —
 don't expect "live" business data until that's wired up and enabled.
@@ -131,7 +174,7 @@ type FencingChatResponse = {
   type: 'message' | 'question' | 'confirmation' | 'result' | 'comparison_result'
   message: string
   options: { label: string; value: string | number | boolean }[]
-  results: { businessName: string; ratePerMeter: number; estimatedTotal: number; notes: string }[]
+  results: { businessName: string; suburb: string; ratePerMeter: number; estimatedTotal: number; notes: string }[]
   avgRatePerMeter: number | null
   comparison?: {
     potentialSavings: number | null
@@ -309,6 +352,9 @@ here as a record; #4 and #7 are the ones still open.
 5. ~~Blank chat bubbles~~ — **fixed**, see "Errors" above.
 5b. ~~Asks for a field the customer already gave (usually the suburb, typed on
    the hero screen)~~ — **fixed** by `knownChecklist`, see above.
+5c. ~~Results ignore the customer's suburb entirely~~ — **fixed**, see "Suburb
+   matching is exact" above. This was the most damaging one: the suburb was
+   collected and displayed but never filtered on.
 6. ~~Recaps after three answers, then re-asks the rest~~ — **fixed** by the
    client-side intent lock (see "Intent is locked by the client") plus the
    deterministic checklist gate in `Format New-Quote Result1`.

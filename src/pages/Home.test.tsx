@@ -283,12 +283,35 @@ describe('Home', () => {
       intent: 'new_quote',
       message: 'Got everything!',
       options: [],
-      results: [{ businessName: 'A Plus Fencing', ratePerMeter: 152, estimatedTotal: 3040, notes: '' }],
+      results: [
+        { businessName: 'A Plus Fencing', suburb: 'Pakenham', ratePerMeter: 152, estimatedTotal: 3040, notes: '' },
+      ],
       avgRatePerMeter: 152,
     })
 
     await waitFor(() => expect(screen.getByText('A Plus Fencing')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /view quote/i })).toBeInTheDocument()
+    // the suburb shown is the customer's own, not a placeholder
+    expect(screen.getByText('Services Pakenham')).toBeInTheDocument()
+  })
+
+  it('keeps a no-match result in the thread so the reason is actually readable', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'result',
+      message: "Sorry — I don't have any fencing businesses covering Gotham City yet. Want to try a nearby suburb?",
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+
+    await startChat(user, 'Colorbond fence in Gotham City, 20m')
+
+    await waitFor(() => expect(screen.getByText(/don't have any fencing businesses covering/i)).toBeInTheDocument())
+    // still in the chat, so the suburb can be corrected on the spot
+    expect(screen.getByLabelText(/your reply/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /start a new quote/i })).not.toBeInTheDocument()
   })
 
   it('lets the user correct a wrong field from the confirmation card, then re-shows the confirmation', async () => {
