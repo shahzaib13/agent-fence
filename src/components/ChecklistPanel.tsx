@@ -3,13 +3,18 @@ import { ChecklistRows } from './ChecklistRows'
 
 export function ChecklistPanel({ checklist }: { checklist: ChecklistData | null }) {
   return (
-    <aside className="hidden h-fit flex-col gap-7 rounded-4xl bg-[#F1F4F3] p-9 lg:flex">
-      <p className="text-sm font-bold text-[#062D27] uppercase">Building your brief</p>
+    <aside className="hidden flex-col gap-7 overflow-y-auto border-l border-gray-200 bg-[#EFF4F2] px-8 py-10 lg:flex">
+      <p className="text-[11px] font-bold tracking-widest text-gray-500 uppercase">Building your brief</p>
       {checklist ? (
         <ChecklistRows checklist={checklist} />
       ) : (
         <p className="text-sm text-gray-500">We'll track your project details here as you answer.</p>
       )}
+      {/* Anchors the panel's bottom edge so it doesn't read as a half-empty column, and puts the
+          privacy line back on screen — the page footer that used to carry it is gone in chat. */}
+      <p className="mt-auto border-t border-gray-300/60 pt-6 text-xs leading-relaxed text-gray-500">
+        Photos, PDFs and video walkthroughs are analysed privately. Nothing is shared without your consent.
+      </p>
     </aside>
   )
 }

@@ -73,16 +73,41 @@ const FENCING_CHAT_WEBHOOK_URL = import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL ?
 
 const VALID_TYPES = ['message', 'question', 'confirmation', 'result', 'comparison_result']
 
+// What the client already knows about this conversation, sent back on every turn. The
+// workflow's agents have no state of their own beyond a rolling chat-memory window, so
+// anything not restated here they have to re-derive from that window — and when they
+// fail to, they ask for it a second time.
+export interface SessionContext {
+  // The flow this session was locked into on its first turn, so the workflow stops
+  // re-classifying new_quote vs compare_quote from scratch every turn — a mid-conversation
+  // flip hands the brief to the other agent, which keeps a different checklist and so
+  // recaps early and then re-asks whatever it never collected.
+  intent?: 'new_quote' | 'compare_quote'
+  // Every checklist field already established, so the agent is told outright what not to
+  // ask about instead of having to remember it.
+  knownChecklist?: ChecklistData | null
+}
+
+function serialiseKnownChecklist(checklist: ChecklistData | null | undefined) {
+  if (!checklist) return null
+  const known = Object.entries(checklist).filter(([, value]) => value !== null && value !== undefined)
+  return known.length > 0 ? JSON.stringify(Object.fromEntries(known)) : null
+}
+
 export async function sendFencingChatMessage(
   message: string,
   sessionId: string,
   quoteFiles?: File[] | null,
+  session?: SessionContext,
 ): Promise<FencingChatResponse> {
-  let payload: FormData | { message: string; sessionId: string }
+  const knownChecklist = serialiseKnownChecklist(session?.knownChecklist)
+  let payload: FormData | { message: string; sessionId: string; intent?: string; knownChecklist?: string }
   if (quoteFiles && quoteFiles.length > 0) {
     payload = new FormData()
     payload.append('message', message)
     payload.append('sessionId', sessionId)
+    if (session?.intent) payload.append('intent', session.intent)
+    if (knownChecklist) payload.append('knownChecklist', knownChecklist)
     // All files go under the same field name in ONE request — n8n's webhook parses
     // repeated multipart fields into indexed binary keys (quoteFile0, quoteFile1, ...)
     // and its "Split Attachments by Binary Key" node processes them together in a
@@ -91,7 +116,12 @@ export async function sendFencingChatMessage(
       payload.append('quoteFile', file)
     }
   } else {
-    payload = { message, sessionId }
+    payload = {
+      message,
+      sessionId,
+      ...(session?.intent ? { intent: session.intent } : {}),
+      ...(knownChecklist ? { knownChecklist } : {}),
+    }
   }
 
   const { data } = await api.post<FencingChatResponse>(FENCING_CHAT_WEBHOOK_URL, payload, { timeout: 30_000 })

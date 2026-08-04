@@ -18,6 +18,14 @@ export function getActiveCardIndex(checklist: ChecklistData | null, checklistCom
   return 3
 }
 
+// Which checklist field an answer just filled in — the only way to label a collapsed answer
+// chip ("Fence type: Colorbond"), since the workflow's `options` carry no field name of their
+// own. Comparing the checklist before and after the turn is what actually identifies it.
+export function diffFilledField(prev: ChecklistData | null, next: ChecklistData | null | undefined) {
+  if (!next) return undefined
+  return Object.keys(next).find((key) => next[key] !== null && (prev?.[key] ?? null) === null)
+}
+
 const FIELD_LABELS: Record<string, string> = {
   suburb: 'Suburb',
   fenceType: 'Fence type',

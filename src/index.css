@@ -41,3 +41,41 @@ body {
     opacity: 1;
   }
 }
+
+/* One word of a streamed AI reply materialising. Deliberately a fade/de-blur in place
+   rather than a character-by-character typewriter: every word already occupies its final
+   position, so the bubble never reflows mid-reveal. */
+@keyframes word-in {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+/* Answer tiles / the confirmation recap rising into place once the text above them has
+   finished revealing. */
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shimmer-sweep {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -160% 0;
+  }
+}

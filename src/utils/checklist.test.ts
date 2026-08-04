@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { checklistFieldLabel, formatChecklistValue, getActiveCardIndex } from './checklist'
+import { checklistFieldLabel, diffFilledField, formatChecklistValue, getActiveCardIndex } from './checklist'
+
+describe('diffFilledField', () => {
+  it('names the field that went from unknown to known', () => {
+    expect(
+      diffFilledField({ suburb: 'Berwick', fenceType: null }, { suburb: 'Berwick', fenceType: 'Colorbond' }),
+    ).toBe('fenceType')
+  })
+
+  it('treats a field the previous checklist never had as newly filled', () => {
+    expect(diffFilledField(null, { suburb: 'Berwick', fenceType: null })).toBe('suburb')
+  })
+
+  it('returns undefined when nothing new was filled in', () => {
+    expect(diffFilledField({ suburb: 'Berwick' }, { suburb: 'Berwick' })).toBeUndefined()
+    expect(diffFilledField({ suburb: 'Berwick' }, null)).toBeUndefined()
+  })
+})
 
 describe('checklistFieldLabel', () => {
   it('maps a known key to its human label', () => {

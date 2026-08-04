@@ -10,10 +10,9 @@ const options = [
 ]
 
 describe('ConfirmationCard', () => {
-  it('shows the recap message and the checklist as a bullet list', () => {
-    render(<ConfirmationCard message="From your data, is this correct?" checklist={checklist} options={options} onSelectOption={() => {}} />)
+  it('shows the collected brief as a checklist', () => {
+    render(<ConfirmationCard checklist={checklist} options={options} onSelectOption={() => {}} />)
 
-    expect(screen.getByText('From your data, is this correct?')).toBeInTheDocument()
     expect(screen.getByText('Suburb: Pakenham')).toBeInTheDocument()
     expect(screen.getByText('Fence type: Pool Fencing')).toBeInTheDocument()
   })
@@ -21,10 +20,19 @@ describe('ConfirmationCard', () => {
   it('calls onSelectOption with the clicked option', async () => {
     const user = userEvent.setup()
     const onSelectOption = vi.fn()
-    render(<ConfirmationCard message="Correct?" checklist={checklist} options={options} onSelectOption={onSelectOption} />)
+    render(<ConfirmationCard checklist={checklist} options={options} onSelectOption={onSelectOption} />)
 
     await user.click(screen.getByRole('button', { name: /yes, that's all correct/i }))
 
     expect(onSelectOption).toHaveBeenCalledWith(options[0])
+  })
+
+  it('collapses to just the chosen answer once answered', () => {
+    render(
+      <ConfirmationCard checklist={checklist} options={options} answered={options[0]} onSelectOption={() => {}} />,
+    )
+
+    expect(screen.getByText("Yes, that's all correct")).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /no, something's wrong/i })).not.toBeInTheDocument()
   })
 })

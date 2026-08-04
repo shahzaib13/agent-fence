@@ -1,4 +1,4 @@
-export function Header({ dimmed }: { dimmed?: boolean }) {
+export function Header({ dimmed, onNewProject }: { dimmed?: boolean; onNewProject?: () => void }) {
   return (
     <header
       className={`flex h-22 w-full items-center justify-between gap-4 px-6 transition-opacity ${dimmed ? 'pointer-events-none opacity-40' : ''}`}
@@ -26,6 +26,7 @@ export function Header({ dimmed }: { dimmed?: boolean }) {
         </a>
         <button
           type="button"
+          onClick={onNewProject}
           className="rounded-full bg-[#062D27] px-5 py-2.5 text-sm font-medium whitespace-nowrap text-white transition-transform duration-150 hover:scale-105 hover:bg-[#0a3f37] active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
         >
           New project

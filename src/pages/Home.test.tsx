@@ -10,6 +10,21 @@ vi.mock('../services/fencingChat', () => ({
 
 const mockedSend = vi.mocked(sendFencingChatMessage)
 
+const emptyChecklist = {
+  suburb: 'Berwick',
+  fenceType: null,
+  lengthMeters: null,
+  heightMm: null,
+  removeOldFence: null,
+  siteAccess: null,
+}
+
+async function startChat(user: ReturnType<typeof userEvent.setup>, description = 'Colorbond fence, Berwick, 20m') {
+  render(<Home />)
+  await user.type(screen.getByLabelText(/describe your construction project/i), description)
+  await user.click(screen.getByRole('button', { name: /start analysis/i }))
+}
+
 describe('Home', () => {
   beforeEach(() => {
     mockedSend.mockReset()
@@ -22,98 +37,397 @@ describe('Home', () => {
     expect(screen.getByRole('button', { name: /^deck$/i })).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('sends the description, then requires selecting + Continue before submitting an MCQ answer', async () => {
+  it('drops straight into the chat thread with the typed description as the first message', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Hi there! Happy to help with that — ready for a few questions?',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+
+    await startChat(user)
+
+    expect(screen.getByText('Colorbond fence, Berwick, 20m')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/ready for a few questions/i)).toBeInTheDocument())
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null })
+    // the composer is always there — the user can type at any point, MCQ on screen or not
+    expect(screen.getByLabelText(/your reply/i)).toBeInTheDocument()
+  })
+
+  it('sends an MCQ pick immediately and collapses the row to just that answer', async () => {
     const user = userEvent.setup()
     mockedSend.mockResolvedValueOnce({
       sessionId: 'session-1',
       type: 'question',
-      message: 'Nice one! What height fence are you after?',
+      message: 'What type of fence are you after?',
       options: [
-        { label: '1500mm', value: '1500' },
-        { label: '1800mm', value: '1800' },
+        { label: 'Timber', value: 'Timber' },
+        { label: 'Colorbond', value: 'Colorbond' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: emptyChecklist,
+      checklistComplete: false,
+    })
+
+    await startChat(user)
+
+    const option = await screen.findByRole('button', { name: 'Colorbond' })
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Great choice.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: { ...emptyChecklist, fenceType: 'Colorbond' },
+      checklistComplete: false,
+    })
+    // no Continue step any more — one click sends
+    await user.click(option)
+    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond', expect.any(String), undefined, expect.objectContaining({ intent: undefined }))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Timber' })).not.toBeInTheDocument())
+    // the surviving chip names the field the answer filled, worked out by diffing the checklist
+    await waitFor(() => expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThan(1))
+  })
+
+  it('locks the flow to the first intent n8n reports and echoes it back on every later turn', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      intent: 'new_quote',
+      message: 'What type of fence are you after?',
+      options: [{ label: 'Timber', value: 'Timber' }],
+      results: [],
+      avgRatePerMeter: null,
+    })
+
+    await startChat(user)
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      // n8n's classifier flipping mid-conversation is exactly what we refuse to follow
+      type: 'message',
+      intent: 'compare_quote',
+      message: 'Got it.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.click(await screen.findByRole('button', { name: 'Timber' }))
+    expect(mockedSend).toHaveBeenLastCalledWith('Timber', expect.any(String), undefined, expect.objectContaining({ intent: 'new_quote' }))
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Sure.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.type(screen.getByLabelText(/your reply/i), 'ok')
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+
+    expect(mockedSend).toHaveBeenLastCalledWith('ok', expect.any(String), undefined, expect.objectContaining({ intent: 'new_quote' }))
+  })
+
+  it('echoes the checklist it already has back on every turn, so nothing gets asked twice', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'What type of fence are you after?',
+      options: [{ label: 'Timber', value: 'Timber' }],
+      results: [],
+      avgRatePerMeter: null,
+      // the workflow picked the suburb straight out of the hero description
+      checklist: emptyChecklist,
+      checklistComplete: false,
+    })
+
+    await startChat(user, 'I want a fence in Berwick')
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Timber it is.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: { ...emptyChecklist, fenceType: 'Timber' },
+      checklistComplete: false,
+    })
+    await user.click(await screen.findByRole('button', { name: 'Timber' }))
+
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'Timber',
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ knownChecklist: emptyChecklist }),
+    )
+  })
+
+  it('sends a numeric MCQ option value as a string, matching the workflow contract', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'What height fence are you after?',
+      options: [
+        { label: '1500mm', value: 1500 },
+        { label: '1800mm', value: 1800 },
       ],
       results: [],
       avgRatePerMeter: null,
     })
 
-    render(<Home />)
-    await user.type(
-      screen.getByLabelText(/describe your construction project/i),
-      'A Colorbond fence in Berwick, about 20 metres',
+    await startChat(user)
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Got it!',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.click(await screen.findByRole('button', { name: '1800mm' }))
+
+    expect(mockedSend).toHaveBeenLastCalledWith('1800', expect.any(String), undefined, expect.objectContaining({ intent: undefined }))
+  })
+
+  it('lets the user type a reply instead of picking a tile', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'How long is the fence?',
+      options: [
+        { label: 'Up to 20m', value: 20 },
+        { label: '20-50m', value: 50 },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+    })
+
+    await startChat(user)
+    await waitFor(() => expect(screen.getByText(/how long is the fence/i)).toBeInTheDocument())
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Roughly 35 metres, noted.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.type(screen.getByLabelText(/your reply/i), 'about 35 metres')
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+
+    expect(mockedSend).toHaveBeenLastCalledWith('about 35 metres', expect.any(String), undefined, expect.objectContaining({ intent: undefined }))
+    await waitFor(() => expect(screen.getByText(/roughly 35 metres, noted/i)).toBeInTheDocument())
+  })
+
+  it('confirms the brief inside the thread, then shows the thinking screen and the results', async () => {
+    const user = userEvent.setup()
+    const fullChecklist = {
+      suburb: 'Pakenham',
+      fenceType: 'Pool Fencing',
+      lengthMeters: 15,
+      heightMm: 1800,
+      removeOldFence: true,
+      siteAccess: 'easy',
+    }
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'confirmation',
+      intent: 'new_quote',
+      message: 'Got it — Pakenham, Pool Fencing, 15m. All correct?',
+      options: [
+        { label: "Yes, that's all correct", value: 'yes' },
+        { label: "No, something's wrong", value: 'no' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: fullChecklist,
+      checklistComplete: false,
+    })
+
+    await startChat(user, 'Pool fencing in Pakenham, 15m')
+
+    await waitFor(() => expect(screen.getByText(/all correct\?/i)).toBeInTheDocument())
+    const yesButton = await screen.findByRole('button', { name: /yes, that's all correct/i })
+    expect(screen.getAllByText('Suburb: Pakenham').length).toBeGreaterThan(0)
+
+    let resolveNext: (value: FencingChatResponse) => void = () => {}
+    mockedSend.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveNext = resolve
+        }),
     )
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+    await user.click(yesButton)
 
-    await waitFor(() => expect(screen.getByText(/what height fence are you after/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('A Colorbond fence in Berwick, about 20 metres', expect.any(String), [])
-    // no free-text box while an MCQ question is showing
-    expect(screen.queryByLabelText(/your answer/i)).not.toBeInTheDocument()
+    // the thinking screen only appears now, once the whole conversation is settled
+    await waitFor(() => expect(screen.getByRole('heading', { name: /finalising your quote/i })).toBeInTheDocument())
 
-    const continueButton = screen.getByRole('button', { name: /^continue$/i })
-    expect(continueButton).toBeDisabled()
-
-    const option = screen.getByRole('button', { name: /1800mm/i })
-    await user.click(option)
-    expect(option).toHaveAttribute('aria-pressed', 'true')
-    expect(continueButton).toBeEnabled()
-
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'What suburb is this in?',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-    })
-    await user.click(continueButton)
-    expect(mockedSend).toHaveBeenLastCalledWith('1800', expect.any(String), undefined)
-
-    await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
-  })
-
-  it('Back resets the flow back to the hero', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'What suburb is this in?',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-    })
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-    await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-
-    await user.click(screen.getByRole('button', { name: /^back$/i }))
-    expect(screen.getByRole('heading', { name: /describe your construction project/i })).toBeInTheDocument()
-  })
-
-  it('shows matched businesses once the checklist is complete', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
+    resolveNext({
       sessionId: 'session-1',
       type: 'result',
-      message: 'Got everything — here is what I found nearby.',
+      intent: 'new_quote',
+      message: 'Got everything!',
       options: [],
-      results: [
-        { businessName: 'A Plus Fencing', ratePerMeter: 152, estimatedTotal: 3040, notes: 'standard height 1800mm' },
-      ],
+      results: [{ businessName: 'A Plus Fencing', ratePerMeter: 152, estimatedTotal: 3040, notes: '' }],
       avgRatePerMeter: 152,
     })
 
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
     await waitFor(() => expect(screen.getByText('A Plus Fencing')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /view quote/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /start a new quote/i })).toBeInTheDocument()
   })
 
-  it('shows the separate Quote Comparison page instead of the quiz grid when n8n returns a comparison_result', async () => {
+  it('lets the user correct a wrong field from the confirmation card, then re-shows the confirmation', async () => {
+    const user = userEvent.setup()
+    const baseChecklist = {
+      suburb: 'Berwick',
+      fenceType: 'Timber',
+      lengthMeters: 20,
+      heightMm: 1800,
+      removeOldFence: false,
+      siteAccess: 'easy',
+    }
+    const confirmationOptions = [
+      { label: "Yes, that's all correct", value: 'yes' },
+      { label: "No, something's wrong", value: 'no' },
+    ]
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'confirmation',
+      message: 'Got it — Berwick, Timber, 20m. All correct?',
+      options: confirmationOptions,
+      results: [],
+      avgRatePerMeter: null,
+      checklist: baseChecklist,
+      checklistComplete: false,
+    })
+
+    await startChat(user, 'Timber fence in Berwick, 20m')
+    const noButton = await screen.findByRole('button', { name: /no, something's wrong/i })
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'No worries — what should I fix?',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: baseChecklist,
+      checklistComplete: false,
+    })
+    await user.click(noButton)
+    await waitFor(() => expect(screen.getByText(/what should i fix/i)).toBeInTheDocument())
+    // the answered confirmation stays in the thread, collapsed to what was chosen
+    expect(screen.getByText("No, something's wrong")).toBeInTheDocument()
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'confirmation',
+      message: 'Got it — Colorbond instead. All correct now?',
+      options: confirmationOptions,
+      results: [],
+      avgRatePerMeter: null,
+      checklist: { ...baseChecklist, fenceType: 'Colorbond' },
+      checklistComplete: false,
+    })
+    await user.type(screen.getByLabelText(/your reply/i), "it's Colorbond, not Timber")
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+
+    await waitFor(() => expect(screen.getByText(/all correct now\?/i)).toBeInTheDocument())
+    expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThan(0)
+  })
+
+  it('shows an inline retry in the thread when the webhook fails', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockRejectedValueOnce(new Error('network error'))
+
+    await startChat(user)
+
+    await waitFor(() => expect(screen.getByText(/something went wrong on my end/i)).toBeInTheDocument())
+    const retryButton = await screen.findByRole('button', { name: /try again/i })
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'What suburb is this in?',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.click(retryButton)
+
+    await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
+    expect(screen.queryByText(/something went wrong on my end/i)).not.toBeInTheDocument()
+    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null })
+  })
+
+  it('shows the live checklist in the sidebar as the workflow fills it in', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'What type of fence are you after?',
+      options: [{ label: 'Timber', value: 'Timber' }],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: emptyChecklist,
+      checklistComplete: false,
+    })
+
+    await startChat(user, 'A fence in Berwick')
+
+    await waitFor(() => expect(screen.getByText('Building your brief')).toBeInTheDocument())
+    expect(screen.getByText('Suburb: Berwick')).toBeInTheDocument()
+    expect(screen.getByText('Fence type')).toBeInTheDocument()
+  })
+
+  it('keeps showing the last-known checklist even when a later turn omits it entirely', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'What type of fence are you after?',
+      options: [{ label: 'Timber', value: 'Timber' }],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: { suburb: 'Berwick', fenceType: null },
+      checklistComplete: false,
+    })
+
+    await startChat(user, 'A fence in Berwick')
+    await waitFor(() => expect(screen.getByText('Suburb: Berwick')).toBeInTheDocument())
+
+    // No `checklist` field at all on this turn — a plain aside/acknowledgement.
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Sure, I can explain that.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.type(screen.getByLabelText(/your reply/i), 'what does that mean?')
+    await user.click(screen.getByRole('button', { name: /send message/i }))
+
+    await waitFor(() => expect(screen.getByText(/i can explain that/i)).toBeInTheDocument())
+    expect(screen.getByText('Suburb: Berwick')).toBeInTheDocument()
+  })
+
+  it('shows the separate Quote Comparison page when n8n returns a comparison', async () => {
     const user = userEvent.setup()
     mockedSend.mockResolvedValueOnce({
       sessionId: 'session-1',
@@ -144,17 +458,10 @@ describe('Home', () => {
       },
     })
 
-    render(<Home />)
-    await user.click(screen.getByRole('button', { name: /^fence$/i }))
-    await user.type(
-      screen.getByLabelText(/describe your construction project/i),
-      'Colorbond, Berwick, 20m, already quoted $9,100',
-    )
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+    await startChat(user, 'Colorbond, Berwick, 20m, already quoted $9,100')
 
     await waitFor(() => expect(screen.getByRole('heading', { name: /quote direct comparison/i })).toBeInTheDocument())
     expect(screen.getByText('Modern Decks NSW')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /view quote/i })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /^back$/i }))
     expect(screen.getByRole('heading', { name: /describe your construction project/i })).toBeInTheDocument()
@@ -172,50 +479,14 @@ describe('Home', () => {
       comparison: { potentialSavings: null, marketAverage: null, totalQuotesScreened: 0, userExistingPrice: null, quotes: [] },
     })
 
-    render(<Home />)
-    await user.click(screen.getByRole('button', { name: /^fence$/i }))
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond, Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+    await startChat(user)
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
     expect(screen.queryByRole('heading', { name: /quote direct comparison/i })).not.toBeInTheDocument()
   })
 
-  it('falls back to rendering results when intent says compare_quote but the response has no comparison object', async () => {
+  it('New project resets the conversation back to the hero', async () => {
     const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'result',
-      intent: 'compare_quote',
-      message: '',
-      options: [],
-      results: [
-        { businessName: 'Gisborne Fencing Services', ratePerMeter: 118, estimatedTotal: 2360, notes: 'standard height 1800mm' },
-      ],
-      avgRatePerMeter: 147.97,
-    })
-
-    render(<Home />)
-    await user.click(screen.getByRole('button', { name: /^fence$/i }))
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond, Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
-    await waitFor(() => expect(screen.getByText('Gisborne Fencing Services')).toBeInTheDocument())
-    expect(screen.queryByRole('heading', { name: /quote direct comparison/i })).not.toBeInTheDocument()
-  })
-
-  it('shows a retry button in the same card on failure, not a chat bubble', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockRejectedValueOnce(new Error('network error'))
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
-    await waitFor(() => expect(screen.getByText(/something went wrong on my end/i)).toBeInTheDocument())
-    const retryButton = screen.getByRole('button', { name: /try again/i })
-    expect(retryButton).toBeInTheDocument()
-
     mockedSend.mockResolvedValueOnce({
       sessionId: 'session-1',
       type: 'message',
@@ -224,9 +495,13 @@ describe('Home', () => {
       results: [],
       avgRatePerMeter: null,
     })
-    await user.click(retryButton)
+
+    await startChat(user)
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [])
+
+    await user.click(screen.getByRole('button', { name: /new project/i }))
+    expect(screen.getByRole('heading', { name: /describe your construction project/i })).toBeInTheDocument()
+    expect(screen.queryByText(/what suburb is this in/i)).not.toBeInTheDocument()
   })
 
   it('selecting a non-fencing project type shows the coming-soon screen instead of calling the API', async () => {
@@ -241,26 +516,6 @@ describe('Home', () => {
 
     await user.click(screen.getByRole('button', { name: /get a fencing quote instead/i }))
     expect(screen.getByRole('heading', { name: /describe your construction project/i })).toBeInTheDocument()
-  })
-
-  it('selecting Fence still goes to the real quiz flow', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'What suburb is this in?',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-    })
-
-    render(<Home />)
-    await user.click(screen.getByRole('button', { name: /^fence$/i }))
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'about 20 metres')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
-    await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalled()
   })
 
   it('updates the prefilled description every time the chip selection changes', async () => {
@@ -295,10 +550,10 @@ describe('Home', () => {
     await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m{Enter}')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [])
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null })
   })
 
-  it('sends any free-typed description straight to n8n with no chip selected, even if it never mentions fencing', async () => {
+  it('sends any free-typed description straight to n8n, even if it never mentions fencing', async () => {
     const user = userEvent.setup()
     mockedSend.mockResolvedValueOnce({
       sessionId: 'session-1',
@@ -309,255 +564,9 @@ describe('Home', () => {
       avgRatePerMeter: null,
     })
 
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'I need a medical report')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+    await startChat(user, 'I need a medical report')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [])
-  })
-
-  it('shows the live checklist in the sidebar as the workflow fills it in', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'question',
-      message: 'What type of fence are you after?',
-      options: [
-        { label: 'Timber', value: 'Timber' },
-        { label: 'Colorbond', value: 'Colorbond' },
-      ],
-      results: [],
-      avgRatePerMeter: null,
-      checklist: {
-        suburb: 'Berwick',
-        fenceType: null,
-        lengthMeters: null,
-        heightMm: null,
-        removeOldFence: null,
-        siteAccess: null,
-      },
-      checklistComplete: false,
-    })
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'A fence in Berwick')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
-    await waitFor(() => expect(screen.getByText('Building your brief')).toBeInTheDocument())
-    expect(screen.getAllByText('Suburb: Berwick').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Fence type').length).toBeGreaterThan(0)
-  })
-
-  it('sends a numeric/boolean MCQ option value as a string, matching the workflow contract', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'question',
-      message: 'What height fence are you after?',
-      options: [
-        { label: '1500mm', value: 1500 },
-        { label: '1800mm', value: 1800 },
-      ],
-      results: [],
-      avgRatePerMeter: null,
-    })
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
-    await waitFor(() => expect(screen.getByText(/what height fence are you after/i)).toBeInTheDocument())
-
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'Got it!',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-    })
-    await user.click(screen.getByRole('button', { name: /1800mm/i }))
-    await user.click(screen.getByRole('button', { name: /^continue$/i }))
-
-    expect(mockedSend).toHaveBeenLastCalledWith('1800', expect.any(String), undefined)
-  })
-
-  it('shows a distinct confirmation card once the checklist is complete, then finalises after Yes', async () => {
-    const user = userEvent.setup()
-    const fullChecklist = {
-      suburb: 'Pakenham',
-      fenceType: 'Pool Fencing',
-      lengthMeters: 15,
-      heightMm: 1800,
-      removeOldFence: true,
-      siteAccess: 'easy',
-    }
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'confirmation',
-      intent: 'new_quote',
-      message: 'Got it — Pakenham, Pool Fencing, 15m. All correct?',
-      options: [
-        { label: "Yes, that's all correct", value: 'yes' },
-        { label: "No, something's wrong", value: 'no' },
-      ],
-      results: [],
-      avgRatePerMeter: null,
-      checklist: fullChecklist,
-      checklistComplete: false,
-    })
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Pool fencing in Pakenham, 15m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
-    await waitFor(() => expect(screen.getByText(/all correct\?/i)).toBeInTheDocument())
-    expect(screen.getAllByText('Suburb: Pakenham').length).toBeGreaterThan(0)
-    // confirmation is a distinct card, not the normal MCQ tile grid
-    expect(screen.queryByText(/^Question \d/)).not.toBeInTheDocument()
-
-    let resolveNext: (value: FencingChatResponse) => void = () => {}
-    mockedSend.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveNext = resolve
-        }),
-    )
-    await user.click(screen.getByRole('button', { name: /yes, that's all correct/i }))
-
-    await waitFor(() => expect(screen.getByRole('heading', { name: /finalising your quote/i })).toBeInTheDocument())
-
-    resolveNext({
-      sessionId: 'session-1',
-      type: 'result',
-      intent: 'new_quote',
-      message: 'Got everything!',
-      options: [],
-      results: [{ businessName: 'A Plus Fencing', ratePerMeter: 152, estimatedTotal: 3040, notes: '' }],
-      avgRatePerMeter: 152,
-    })
-
-    await waitFor(() => expect(screen.getByText('A Plus Fencing')).toBeInTheDocument())
-  })
-
-  it('lets the user correct a wrong field from the confirmation card, then re-shows the confirmation', async () => {
-    const user = userEvent.setup()
-    const baseChecklist = {
-      suburb: 'Berwick',
-      fenceType: 'Timber',
-      lengthMeters: 20,
-      heightMm: 1800,
-      removeOldFence: false,
-      siteAccess: 'easy',
-    }
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'confirmation',
-      message: 'Got it — Berwick, Timber, 20m. All correct?',
-      options: [
-        { label: "Yes, that's all correct", value: 'yes' },
-        { label: "No, something's wrong", value: 'no' },
-      ],
-      results: [],
-      avgRatePerMeter: null,
-      checklist: baseChecklist,
-      checklistComplete: false,
-    })
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Timber fence in Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-    await waitFor(() => expect(screen.getByText(/all correct\?/i)).toBeInTheDocument())
-
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'No worries — what should I fix?',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-      checklist: baseChecklist,
-      checklistComplete: false,
-    })
-    await user.click(screen.getByRole('button', { name: /no, something's wrong/i }))
-
-    await waitFor(() => expect(screen.getByText(/what should i fix/i)).toBeInTheDocument())
-    expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
-
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'confirmation',
-      message: 'Got it — Colorbond instead. All correct now?',
-      options: [
-        { label: "Yes, that's all correct", value: 'yes' },
-        { label: "No, something's wrong", value: 'no' },
-      ],
-      results: [],
-      avgRatePerMeter: null,
-      checklist: { ...baseChecklist, fenceType: 'Colorbond' },
-      checklistComplete: false,
-    })
-    await user.type(screen.getByLabelText(/your answer/i), "it's Colorbond, not Timber")
-    await user.click(screen.getByRole('button', { name: /send/i }))
-
-    await waitFor(() => expect(screen.getByText(/all correct now\?/i)).toBeInTheDocument())
-    expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThan(0)
-  })
-
-  it('keeps showing the last-known checklist even when a later turn omits it entirely', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'confirmation',
-      message: 'Got it — Berwick, Timber, 20m. All correct?',
-      options: [
-        { label: "Yes, that's all correct", value: 'yes' },
-        { label: "No, something's wrong", value: 'no' },
-      ],
-      results: [],
-      avgRatePerMeter: null,
-      checklist: { suburb: 'Berwick', fenceType: 'Timber', lengthMeters: 20 },
-      checklistComplete: false,
-    })
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'Timber fence in Berwick, 20m')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-    await waitFor(() => expect(screen.getByText(/all correct\?/i)).toBeInTheDocument())
-
-    // No `checklist` field at all on this turn — a plain aside/acknowledgement.
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'No worries — what should I fix?',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-    })
-    await user.click(screen.getByRole('button', { name: /no, something's wrong/i }))
-
-    await waitFor(() => expect(screen.getByText(/what should i fix/i)).toBeInTheDocument())
-    expect(screen.getByText('Building your brief')).toBeInTheDocument()
-    expect(screen.getAllByText('Suburb: Berwick').length).toBeGreaterThan(0)
-  })
-
-  it('sends a typo\'d description straight to n8n too, no local keyword classification', async () => {
-    const user = userEvent.setup()
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'What suburb is this in?',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-    })
-
-    render(<Home />)
-    await user.type(screen.getByLabelText(/describe your construction project/i), 'I need a fance around my yard')
-    await user.click(screen.getByRole('button', { name: /start analysis/i }))
-
-    await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('I need a fance around my yard', expect.any(String), [])
+    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], { intent: undefined, knownChecklist: null })
   })
 })

@@ -1,12 +1,10 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { AIRecommendationPanel } from '../components/AIRecommendationPanel'
+import { ChatWindow, type ChatMessage } from '../components/ChatWindow'
 import { ChecklistPanel } from '../components/ChecklistPanel'
 import { ComingSoonScreen } from '../components/ComingSoonScreen'
-import { ConfirmationCard } from '../components/ConfirmationCard'
 import { Header } from '../components/Header'
 import { HeroInputScreen } from '../components/HeroInputScreen'
-import { OutOfScopeScreen } from '../components/OutOfScopeScreen'
-import { QuizCard } from '../components/QuizCard'
 import { QuoteComparisonPage } from '../components/QuoteComparisonPage'
 import { ResultsPanel } from '../components/ResultsPanel'
 import { ThinkingScreen } from '../components/ThinkingScreen'
@@ -17,10 +15,12 @@ import {
   type ComparisonSummary,
   type WorkerMatch,
 } from '../services/fencingChat'
-import { CARD_STEP_MS, getActiveCardIndex } from '../utils/checklist'
+import { diffFilledField } from '../utils/checklist'
 import { generateId } from '../utils/id'
 
-type Stage = 'hero' | 'coming-soon' | 'out-of-scope' | 'quiz'
+// The whole conversation now happens in the chat thread — `thinking` only plays once, after the
+// user has confirmed their brief and the workflow goes off to rank businesses.
+type Stage = 'hero' | 'coming-soon' | 'chat' | 'thinking' | 'results'
 
 // Only Fence is wired to a real backend today — every other type gets the "coming soon" screen.
 const LIVE_PROJECT_TYPE = 'Fence'
@@ -29,52 +29,55 @@ function buildPrefill(type: string) {
   return `I need a ${type.toLowerCase()} — `
 }
 
-// After a response lands, hold the ThinkingScreen open long enough for its card-by-card replay
-// (see CARD_STEP_MS) to actually finish playing before swapping to the next screen — otherwise a
-// fast n8n reply would cut the reveal off mid-animation, right back to feeling like an instant snap.
-const REVEAL_BUFFER_MS = 350
-const MIN_HOLD_MS = 600
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 export function Home() {
   const [stage, setStage] = useState<Stage>('hero')
   const [description, setDescription] = useState('')
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState(() => generateId())
-  const [currentMessage, setCurrentMessage] = useState('')
-  const [currentOptions, setCurrentOptions] = useState<ChatOption[] | null>(null)
-  const [currentType, setCurrentType] = useState<string | null>(null)
-  const [currentIntent, setCurrentIntent] = useState<'new_quote' | 'compare_quote' | undefined>(undefined)
-  const [hasError, setHasError] = useState(false)
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [intent, setIntent] = useState<'new_quote' | 'compare_quote' | undefined>(undefined)
   const [lastFailedText, setLastFailedText] = useState<string | null>(null)
   const [lastFailedFiles, setLastFailedFiles] = useState<File[] | null>(null)
   const [results, setResults] = useState<WorkerMatch[] | null>(null)
   const [avgRatePerMeter, setAvgRatePerMeter] = useState<number | null>(null)
   const [comparison, setComparison] = useState<ComparisonSummary | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [awaitingResult, setAwaitingResult] = useState(false)
-  const [questionNumber, setQuestionNumber] = useState(0)
   const [checklist, setChecklist] = useState<ChecklistData | null>(null)
   const [checklistComplete, setChecklistComplete] = useState(false)
+  // The message whose option row just collapsed, waiting to be told which checklist field it filled.
+  const pendingAnswerId = useRef<string | null>(null)
 
   async function sendMessage(apiText: string, quoteFiles?: File[] | null, isFinalConfirm = false) {
     setIsLoading(true)
-    setHasError(false)
-    const requestStartedAt = Date.now()
+    // Captured before the request so the response can be diffed against it — that diff is what
+    // labels the answer chip the user just collapsed.
+    const previousChecklist = checklist
+    const answeredId = pendingAnswerId.current
+    pendingAnswerId.current = null
+    if (isFinalConfirm) setStage('thinking')
+
     try {
-      const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles)
-      setCurrentMessage(response.message)
-      setCurrentType(response.type)
-      setCurrentIntent(response.intent)
-      setCurrentOptions(response.type === 'question' || response.type === 'confirmation' ? response.options : null)
+      const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles, {
+        intent,
+        knownChecklist: previousChecklist,
+      })
+      // Locked on the first turn that declares one, never overwritten afterwards. The workflow
+      // re-runs its new_quote/compare_quote classifier on every single turn, and a flip
+      // mid-conversation hands the brief to the other agent — which keeps its own, shorter
+      // checklist, so it recaps early and then re-asks whatever it never collected.
+      if (response.intent && !intent) setIntent(response.intent)
       // Only overwrite when this turn actually carries a checklist — a "what should I fix?"
       // acknowledgement or similar aside may legitimately omit it. Keeping the last-known
       // checklist means the sidebar never blanks out mid-conversation.
       if (response.checklist) setChecklist(response.checklist)
       setChecklistComplete(response.checklistComplete ?? false)
+
+      const filledField = diffFilledField(previousChecklist, response.checklist)
+      const labelAnswer = (previous: ChatMessage[]) =>
+        answeredId && filledField
+          ? previous.map((m) => (m.id === answeredId ? { ...m, answeredField: filledField } : m))
+          : previous
+
       // Page routing (comparison vs. new-quote flow) depends only on `intent`. `type`
       // never decides which page shows — it just describes the payload (result/message/
       // question/etc.) within whichever flow `intent` has already picked. Guarded by
@@ -84,42 +87,67 @@ export function Home() {
       // instead of leaving the UI stuck on stale state.
       if (response.intent === 'compare_quote' && response.comparison) {
         setComparison(response.comparison)
-      } else if (response.type === 'result') {
+        return
+      }
+      if (response.type === 'result') {
         setResults(response.results)
         setAvgRatePerMeter(response.avgRatePerMeter)
-      } else if (response.type !== 'confirmation') {
-        setQuestionNumber((n) => n + 1)
+        setStage('results')
+        return
       }
 
-      // How many of the 4 thinking-screen cards this turn's reveal needs to step through —
-      // hold the loading state open at least that long (minus whatever the request itself
-      // already took) so the card-by-card replay finishes before we swap to the next screen.
-      const targetCardIndex = getActiveCardIndex(response.checklist ?? checklist, response.checklistComplete ?? false, isFinalConfirm)
-      const desiredHoldMs = Math.max(MIN_HOLD_MS, targetCardIndex * CARD_STEP_MS + REVEAL_BUFFER_MS)
-      const elapsedMs = Date.now() - requestStartedAt
-      if (elapsedMs < desiredHoldMs) await sleep(desiredHoldMs - elapsedMs)
+      setMessages((previous) => [
+        ...labelAnswer(previous),
+        {
+          id: generateId(),
+          role: 'ai',
+          text: response.message,
+          options: response.options,
+          checklist: response.checklist ?? previousChecklist,
+          isConfirmation: response.type === 'confirmation',
+        },
+      ])
+      // A non-result reply to the final "yes" (n8n asking one more thing) drops back into the
+      // thread rather than leaving the thinking screen spinning on nothing.
+      setStage('chat')
     } catch (error) {
       console.error('Fencing chat webhook request failed:', error)
-      setHasError(true)
       setLastFailedText(apiText)
       setLastFailedFiles(quoteFiles ?? null)
-      setCurrentMessage('Sorry, something went wrong on my end — mind trying that again in a moment?')
-      setCurrentOptions(null)
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: generateId(),
+          role: 'ai',
+          text: 'Sorry, something went wrong on my end — mind trying that again in a moment?',
+          isError: true,
+        },
+      ])
+      setStage('chat')
     } finally {
       setIsLoading(false)
-      setAwaitingResult(false)
     }
   }
 
-  const handleConfirmationSelect = (option: ChatOption) => {
-    const isYes = String(option.value) === 'yes'
-    // Flagged *before* the request goes out so the ThinkingScreen shows the "finalising" card
-    // for this specific wait, instead of falling back to "confirming your details" (which is
-    // what the last-known checklist/checklistComplete state would otherwise imply). Passed into
-    // sendMessage explicitly too, since the state update above hasn't re-rendered yet when the
-    // hold-time calculation below runs — reading `awaitingResult` there would still see `false`.
-    if (isYes) setAwaitingResult(true)
-    void sendMessage(String(option.value), undefined, isYes)
+  // An MCQ pick is its own record in the thread — the tile row collapses to the chosen answer,
+  // so it deliberately does *not* also push a user bubble echoing the same thing back.
+  const handleSelectOption = (messageId: string, option: ChatOption) => {
+    if (isLoading) return
+    const target = messages.find((m) => m.id === messageId)
+    pendingAnswerId.current = messageId
+    setMessages((previous) => previous.map((m) => (m.id === messageId ? { ...m, answered: option } : m)))
+    void sendMessage(String(option.value), undefined, !!target?.isConfirmation && String(option.value) === 'yes')
+  }
+
+  const handleSend = (text: string) => {
+    setMessages((previous) => [...previous, { id: generateId(), role: 'user', text }])
+    void sendMessage(text)
+  }
+
+  const handleRetry = () => {
+    if (!lastFailedText) return
+    setMessages((previous) => previous.filter((m) => !m.isError))
+    void sendMessage(lastFailedText, lastFailedFiles)
   }
 
   const handleHeroSubmit = (quoteFiles: File[]) => {
@@ -134,17 +162,15 @@ export function Home() {
       setStage('coming-soon')
       return
     }
-    setStage('quiz')
+    setStage('chat')
+    setMessages([{ id: generateId(), role: 'user', text: description }])
     void sendMessage(description, quoteFiles)
   }
 
   const handleRestart = () => {
     setSessionId(generateId())
-    setCurrentMessage('')
-    setCurrentOptions(null)
-    setCurrentType(null)
-    setCurrentIntent(undefined)
-    setHasError(false)
+    setMessages([])
+    setIntent(undefined)
     setLastFailedText(null)
     setLastFailedFiles(null)
     setResults(null)
@@ -152,22 +178,56 @@ export function Home() {
     setComparison(null)
     setDescription('')
     setSelectedType(null)
-    setQuestionNumber(0)
     setChecklist(null)
     setChecklistComplete(false)
-    setAwaitingResult(false)
+    pendingAnswerId.current = null
     setStage('hero')
   }
 
   // n8n's compare_quote branch produces a fully separate results page (Figma: "Quote Direct
-  // Comparison") rather than reusing the quiz-stage grid layout below.
+  // Comparison") rather than reusing the layouts below.
   if (comparison) {
     return <QuoteComparisonPage comparison={comparison} onBack={handleRestart} />
   }
 
+  // The thread owns the viewport: the page itself never scrolls, the message list and the
+  // brief sidebar each scroll on their own so the composer stays put.
+  if (stage === 'chat') {
+    return (
+      <div className="flex h-screen flex-col overflow-hidden bg-[#FCFDFD]">
+        <Header onNewProject={handleRestart} />
+        <div className="grid min-h-0 flex-1 border-t border-gray-200 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <ChatWindow
+            messages={messages}
+            isLoading={isLoading}
+            onSend={handleSend}
+            onSelectOption={handleSelectOption}
+            onRetry={handleRetry}
+          />
+          <ChecklistPanel checklist={checklist} />
+        </div>
+      </div>
+    )
+  }
+
+  if (stage === 'thinking') {
+    return (
+      <div className="flex min-h-screen flex-col bg-[#FCFDFD]">
+        <Header dimmed />
+        <ThinkingScreen
+          description={description}
+          checklist={checklist}
+          checklistComplete={checklistComplete}
+          awaitingResult
+          intent={intent}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-[#FCFDFD]">
-      <Header dimmed={isLoading} />
+      <Header onNewProject={handleRestart} />
 
       {stage === 'hero' && (
         <HeroInputScreen
@@ -190,60 +250,25 @@ export function Home() {
         <ComingSoonScreen projectType={selectedType ?? 'This'} onBack={handleRestart} />
       )}
 
-      {stage === 'out-of-scope' && <OutOfScopeScreen onBack={handleRestart} />}
-
-      {stage === 'quiz' && isLoading && !results && (
-        <ThinkingScreen
-          description={description}
-          checklist={checklist}
-          checklistComplete={checklistComplete}
-          awaitingResult={awaitingResult}
-          intent={currentIntent}
-        />
-      )}
-
-      {stage === 'quiz' && (!isLoading || results) && (
+      {stage === 'results' && results && (
         <div className="flex flex-1 flex-col items-center px-4 pt-16 pb-24 animate-[fade-in-up_0.4s_ease-out]">
           <div className="mb-10 flex max-w-2xl flex-col items-center gap-2 text-center">
             <h1 className="text-4xl leading-tight font-semibold tracking-tight text-[#062D27]">
-              {results ? 'Matching your project with local specialists.' : "Let's find your perfect match."}
+              Matching your project with local specialists.
             </h1>
             <p className="text-lg text-gray-500">
-              {results
-                ? "Based on your answers, we've identified the best-fit fencing businesses in your area."
-                : "Answer a few quick questions and we'll match you with the right local fencing business."}
+              Based on your answers, we've identified the best-fit fencing businesses in your area.
             </p>
           </div>
 
           <div className="grid w-full max-w-6xl grid-cols-1 gap-8 lg:grid-cols-[1fr_400px]">
-            {results ? (
-              <ResultsPanel results={results} avgRatePerMeter={avgRatePerMeter} onRestart={handleRestart} />
-            ) : currentType === 'confirmation' && checklist ? (
-              <ConfirmationCard
-                message={currentMessage}
-                checklist={checklist}
-                options={currentOptions ?? []}
-                onSelectOption={handleConfirmationSelect}
-              />
-            ) : (
-              <QuizCard
-                questionNumber={questionNumber}
-                message={currentMessage}
-                options={currentOptions}
-                checklist={checklist}
-                hasError={hasError}
-                onSend={sendMessage}
-                onSelectOption={(option) => sendMessage(String(option.value))}
-                onRetry={() => lastFailedText && sendMessage(lastFailedText, lastFailedFiles)}
-                onBack={handleRestart}
-              />
-            )}
-            {results ? <AIRecommendationPanel onModify={handleRestart} /> : <ChecklistPanel checklist={checklist} />}
+            <ResultsPanel results={results} avgRatePerMeter={avgRatePerMeter} onRestart={handleRestart} />
+            <AIRecommendationPanel onModify={handleRestart} />
           </div>
         </div>
       )}
 
-      <footer className={`flex justify-center py-8 transition-opacity ${isLoading ? 'opacity-60' : ''}`}>
+      <footer className="flex justify-center py-8">
         <p className="text-xs text-gray-400">
           Photos, PDFs and video walkthroughs are analysed privately. Nothing is shared without your consent.
         </p>

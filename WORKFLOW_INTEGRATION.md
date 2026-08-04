@@ -54,15 +54,64 @@ UI test trigger, not the one this app calls.)
 interface FencingChatRequest {
   message: string   // free text, OR an MCQ option's `value` coerced to a string — see below
   sessionId: string  // generated client-side, unchanged for the whole conversation
+  intent?: 'new_quote' | 'compare_quote'  // see "Intent is locked by the client" below
+  knownChecklist?: string  // JSON of the already-known fields, see below
 }
 ```
 
+### `knownChecklist` — why the client restates what it already knows
+
+The agents hold no state beyond their rolling chat-memory window, so a value
+they were told several turns ago is only available if it is still inside that
+window *and* the model bothers to restate it. When either fails, the field
+comes back `null` and gets asked for a second time — the classic case being a
+suburb typed into the hero screen ("I want a fence in Pakenham") being asked
+for again a turn or two later.
+
+So the frontend sends back every field it already has, as a JSON string of
+just the non-null entries. `Normalize Input1` carries it as `knownChecklist`
+and it is used twice:
+
+- **Injected into `Fencing AI Agent1`'s prompt** as an `--- Already
+  established for this job, do NOT ask about these again ---` block, so the
+  agent is told outright rather than having to remember. Its system prompt
+  treats that block as settled fact, overridden only by a newer contradicting
+  message from the customer.
+- **Merged over the agent's output** in `Format New-Quote Result1` and
+  `Format Comparison Result`: any field the turn dropped back to `null` that
+  the client knew a value for is restored *before* anything counts what is
+  still missing. The injection stops the wrong question being asked; the merge
+  guarantees an established value can't be lost.
+
+One known wrinkle: on the `"no, something's wrong"` correction path the agent
+deliberately resets a field to `null` so it can re-ask it. The merge restores
+it, so for that one turn the sidebar still shows the old value — the question
+is still asked and the answer still overwrites it, so it self-corrects on the
+next turn.
+
 Chat memory (`Chat Memory (Window Buffer)1` for new-quote, `Chat Memory
-(Compare Flow)` for compare) is a 10-message rolling window keyed by
-`sessionId`, in-memory only — resets if the n8n instance restarts, and can in
-principle lose a checklist value if the conversation runs past the window
-(the agent is prompted to always re-echo known values, but nothing outside
-the LLM's own output actually guarantees this).
+(Compare Flow)` for compare) is a 30-message rolling window keyed by
+`sessionId`, in-memory only — resets if the n8n instance restarts. It was 10,
+which is shorter than a finished new-quote conversation (opener + 6 questions
++ confirmation ≈ 16 messages), so the agent was being told to "always carry
+forward known values" for values that had already fallen out of its window.
+
+### Intent is locked by the client
+
+`Intent & Quote-Compare Agent` re-runs its new_quote/compare_quote
+classification on **every** turn, with nothing carrying the previous verdict
+forward. A flip mid-conversation swaps which agent is driving, and the two
+agents keep separate checklists (6 items vs 4) in separate memories — so the
+compare agent would reach *its* confirmation step after three answers, and
+once the user confirmed, control would fall back to the new-quote agent which
+still had `heightMm`/`removeOldFence`/`siteAccess` unset and asked for them
+right after the "all correct?" step had supposedly finished.
+
+The frontend now locks the intent to whatever the first turn reported and
+echoes it back as `intent` on every later request (`Home.tsx`,
+`sendFencingChatMessage`). `Normalize Input1` copies it to `lockedIntent`, and
+`Format Comparison Result` prefers it over whatever the classifier decided
+this turn. `handleRestart` clears it, so a new session re-decides from scratch.
 
 ### Multi-file uploads
 
@@ -105,11 +154,11 @@ type FencingChatResponse = {
 ### `checklist` — the important field for the frontend's live progress UI
 
 Every `message`/`question`/`confirmation` turn echoes the full checklist
-object back, partially filled in (unknown fields are `null`). This is the
-*only* progress signal that exists today — there is no separate stage/status
-endpoint, so `ThinkingScreen` (`src/components/ThinkingScreen.tsx`) derives
-which of its 4 cards is "active" directly from this field plus
-`checklistComplete` (see below), instead of a fake timer.
+object back, partially filled in (unknown fields are `null`). It drives the
+live "Building your brief" sidebar next to the chat thread, and diffing it
+between turns is also how the frontend labels a collapsed answer chip
+("Fence type: Colorbond") — the workflow's `options` carry no field name of
+their own, so the diff is the only way to know which field an answer filled.
 
 Two different shapes depending on `intent`:
 - `new_quote`: `{ suburb, fenceType, lengthMeters, heightMm, removeOldFence, siteAccess }`
@@ -134,13 +183,23 @@ Once every checklist field is known (whichever flow), the workflow does
 [{ "label": "Yes, that's all correct", "value": "yes" }, { "label": "No, something's wrong", "value": "no" }]
 ```
 
-The frontend renders this as a distinct `ConfirmationCard`
-(`src/components/ConfirmationCard.tsx` — title text + the checklist as a
-bullet list + the two buttons), not the normal MCQ tile grid. The two option
-`value`s must stay the literal lowercase strings `"yes"`/`"no"` — the
-frontend doesn't special-case this turn by `type` alone for the *button*
-styling, but `checklistComplete` genuinely only flips to `true` on the very
-next turn, once the user has replied `"yes"`.
+The frontend renders this inside the chat thread as a distinct
+`ConfirmationCard` (`src/components/ConfirmationCard.tsx` — the checklist as a
+bullet list + the two buttons; the recap sentence itself is the normal message
+bubble above it), not the MCQ tile row. The two option `value`s must stay the
+literal lowercase strings `"yes"`/`"no"`. `checklistComplete` only flips to
+`true` on the very next turn, once the user has replied `"yes"` — and that
+reply is also the only point where the frontend leaves the chat for the
+`ThinkingScreen`.
+
+**A `confirmation` turn is now gated deterministically.** `Format New-Quote
+Result1` counts the nulls in the checklist first: if any of the 6 fields is
+still unset, a `confirmation` is rewritten into a plain `question` for the
+first missing field (using the same canonical option set the prompt hands the
+agent), and `checklistComplete` is forced to `false` so the ranking step can
+never run on a half-filled brief. `Format Comparison Result` does the same for
+its 3 required fields. The prompts ask for this too, but the model was not
+reliably obeying and the flag is what fires the ranking.
 
 - **`"yes"`** → next response is an ordinary `type: 'message'` with
   `checklistComplete: true` (the short handoff line), then the deterministic
@@ -186,29 +245,52 @@ for the agent same as any typed message.
 Same as before: send the clicked option's `value` (stringified) back as
 `message` on the next request, same `sessionId`. No separate endpoint.
 
-### MCQ-first by design
+### MCQ-first, but typing always works
 
-Both agents' prompts are explicit: **`suburb` is the only free-text field**
-in both flows (plus the optional `existingPrice` in compare-quote, which is
-never asked for directly). Every other field must come back as 2-5 `options`
-with an exact, prompt-specified label/value set (e.g. fenceType's 6 options,
-lengthMeters' 4 buckets, heightMm's 2 values, etc.) — the workflow is not
-supposed to ever return free text for those fields. If a build ever shows a
-free-text box for something other than suburb, that's the workflow prompt
-misbehaving, not a frontend routing bug (the frontend just renders whatever
-`options` it's given; empty `options` → free text, non-empty → buttons).
+Both agents' prompts are explicit: **`suburb` is the only field asked as free
+text** (plus the optional `existingPrice` in compare-quote, which is never
+asked for directly). Every other field comes back as 2-5 `options` with an
+exact, prompt-specified label/value set (fenceType's 6 options,
+lengthMeters' 4 buckets, heightMm's 2 values, etc.).
+
+That's about what the agent *asks*, not what the user can *answer with*: the
+chat composer is always available, so any question can be answered by typing
+instead of clicking. The agent is instructed to map a typed reply onto the
+closest valid value for the field it just asked about ("about 35 metres" →
+`lengthMeters: 35`), and to re-ask with the same options if it genuinely
+can't. Nothing on the frontend routes on this — it renders whatever `options`
+it's given (empty → the row is just skipped) and sends whatever the user
+typed.
+
+### The opener turn
+
+The first turn of a conversation does not ask a checklist question. The agent
+acknowledges the description the user typed on the hero screen and asks
+whether they're ready for a few questions (`type: 'message'`, `options: []`),
+echoing back whatever the description already told it in `checklist`. The
+prompt also forbids naming a *number* of questions ("7 quick questions") —
+it can't know how many are left, and it was ending up wrong a turn later.
 
 ### Errors
 
-Unchanged: no separate error shape. Model/tool/lookup failures still come
-back as an apologetic `type: 'message'`. The frontend only needs its own
-error handling for real network failures (timeout/unreachable).
+No separate error shape. Model/tool/lookup failures come back as an
+apologetic `type: 'message'`. The frontend only needs its own error handling
+for real network failures (timeout/unreachable).
+
+**`message` is never empty.** It used to be able to be: `Format Comparison
+Result` emits `message: ""` by design on every `new_quote` turn (that agent
+stays silent and hands off), and the old guards only rejected non-strings, so
+an empty string sailed through to the user as a blank chat bubble whenever
+that turn was the one being responded to — plus `Format Result Response1`
+defaulted its `agentMessage` to `''` inside a try/catch. All three formatter
+nodes now treat blank/whitespace-only as missing and substitute either the
+question that was actually due or a plain fallback line.
 
 ## Known issues in `n8n/fencing-workflow-updated.json`
 
 Historical note — items 1-3 below were found and fixed (1-2 by hand in the
 n8n editor, 3 and the `confirmation` step by this integration work). Kept
-here as a record; only #4 is still open.
+here as a record; #4 and #7 are the ones still open.
 
 1. ~~`comparison_result` never actually fires~~ — **fixed**. `Route:
    New-Quote or Compare Result?`'s doubled `==` (evaluated against the
@@ -224,6 +306,19 @@ here as a record; only #4 is still open.
    result is computed against `Dummy Firebase Workers Data1`'s hard-coded
    array. Worth confirming this is expected for now; if "live data" means
    real Firestore-backed businesses, that's the node to wire up.
+5. ~~Blank chat bubbles~~ — **fixed**, see "Errors" above.
+5b. ~~Asks for a field the customer already gave (usually the suburb, typed on
+   the hero screen)~~ — **fixed** by `knownChecklist`, see above.
+6. ~~Recaps after three answers, then re-asks the rest~~ — **fixed** by the
+   client-side intent lock (see "Intent is locked by the client") plus the
+   deterministic checklist gate in `Format New-Quote Result1`.
+7. **`Intent & Quote-Compare Agent` still runs an LLM call on every turn even
+   when the session is locked to `new_quote`, and writes its `""` hand-off
+   reply into `Chat Memory (Compare Flow)` each time.** Wasted tokens and a
+   memory full of empty assistant turns. Skipping the node entirely would
+   mean rewiring `Format Comparison Result`, which `Fencing AI Agent1`'s
+   prompt expression and `Route: New-Quote or Compare Result?` both read
+   from — not worth it until the token cost actually matters.
 
 ## Recommended next steps (not required for the current frontend, but the
 frontend is designed to make room for these later)
