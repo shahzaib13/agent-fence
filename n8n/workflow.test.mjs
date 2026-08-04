@@ -108,6 +108,55 @@ describe('suburb matching', () => {
   })
 })
 
+describe('length ranges', () => {
+  const forLength = (lengthMeters) => rank({ ...FULL_BRIEF, lengthMeters })
+
+  it('prices a bucket from the low end of the range the customer picked', () => {
+    const range = forLength('20-40')
+    const exact = forLength(20)
+
+    expect(range.results.map((r) => r.estimatedTotal)).toEqual(exact.results.map((r) => r.estimatedTotal))
+  })
+
+  it('quotes a bucket as a genuine span on the comparison page, not a band round a midpoint', () => {
+    const base = { suburb: 'Pakenham', fenceType: 'Colorbond', lengthMeters: '20-40' }
+    const [quote] = rankComparison(base).comparison.quotes
+    const rate = quote.ratePerMeter
+
+    expect(quote.projectTotalMin).toBe(20 * rate)
+    expect(quote.projectTotalMax).toBe(40 * rate)
+  })
+
+  it('keeps the ±3% band when the customer gave an exact length', () => {
+    const [quote] = rankComparison({ suburb: 'Pakenham', fenceType: 'Colorbond', lengthMeters: 25 }).comparison.quotes
+
+    expect(quote.projectTotalMin).toBe(Math.round(25 * quote.ratePerMeter * 0.97))
+    expect(quote.projectTotalMax).toBe(Math.round(25 * quote.ratePerMeter * 1.03))
+  })
+
+  it('prices the open-ended top bucket at its floor, since it has no upper bound', () => {
+    const [quote] = rankComparison({ suburb: 'Pakenham', fenceType: 'Colorbond', lengthMeters: '40+' }).comparison.quotes
+
+    expect(quote.projectTotalMin).toBe(Math.round(40 * quote.ratePerMeter * 0.97))
+    expect(quote.projectTotalMax).toBe(Math.round(40 * quote.ratePerMeter * 1.03))
+  })
+
+  it('still ranks with a range — a bucket is a complete answer', () => {
+    expect(forLength('20-40').matchCount).toBeGreaterThan(0)
+  })
+
+  it('offers ranges as the option values, never a midpoint', () => {
+    const asked = formatNewQuote({
+      type: 'confirmation',
+      message: 'All correct?',
+      options: [],
+      checklist: { ...FULL_BRIEF, lengthMeters: null, heightMm: null, removeOldFence: null, siteAccess: null },
+    })
+
+    expect(asked.options.map((o) => o.value)).toEqual(['1-10', '10-20', '20-40', '40+'])
+  })
+})
+
 describe('unit conversion', () => {
   const height = (value) => formatNewQuote({ type: 'question', message: 'x', options: [], checklist: { ...FULL_BRIEF, heightMm: value } }).checklist.heightMm
 

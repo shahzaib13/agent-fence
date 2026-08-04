@@ -59,6 +59,27 @@ frontend keeps a zero-result `type: 'result'` **in the chat thread** instead
 of switching to the results page, so the explanation is actually shown and
 the customer can correct the suburb or fence type in one line.
 
+### A length bucket stays a range
+
+`lengthMeters`' options used to carry the **midpoint** of each bucket as their
+value (`{"label": "20-40m", "value": 30}`), so a customer who picked "20-40m"
+got a brief back reading "Length: 30m" — a number they never said, for a job
+they never described. The options now carry the range itself (`"1-10"`,
+`"10-20"`, `"20-40"`, `"40+"`) and `lengthMeters` accepts a string as well as
+a number, so:
+
+- the brief and sidebar read back the bucket the customer actually picked
+  (`formatChecklistValue` renders `"20-40"` → `20-40m`, `"40+"` → `40m+`);
+- both ranking nodes parse out both ends. The low end is what pricing and
+  sorting use; on the comparison page `projectTotalMin`/`projectTotalMax`
+  become the genuine ends of the quote instead of a cosmetic ±3% band around
+  a made-up midpoint. Exact lengths keep the ±3% band.
+- `"40+"` has no upper bound anyone can quote against, so it prices at its
+  floor.
+
+A plain number is still stored whenever the customer gives an exact length
+("it's 25 metres" → `25`).
+
 ### Units are converted, not enforced
 
 The checklist stores `heightMm` in millimetres and `lengthMeters` in metres;

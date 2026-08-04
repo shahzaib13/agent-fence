@@ -43,7 +43,11 @@ export function checklistFieldLabel(key: string): string {
 export function formatChecklistValue(key: string, value: string | number | boolean | null): string {
   if (value === null) return ''
   if (typeof value === 'boolean') return value ? 'Yes' : 'No'
-  if (key === 'lengthMeters') return `${value}m`
+  // A bucket answer arrives as the range the customer picked ("20-40", "40+") rather than a
+  // number from inside it, so the brief reads back what they actually chose.
+  if (key === 'lengthMeters') {
+    return typeof value === 'string' && value.endsWith('+') ? `${value.slice(0, -1)}m+` : `${value}m`
+  }
   if (key === 'heightMm') return `${value}mm`
   if (key === 'existingPrice') return `$${value}`
   return String(value)

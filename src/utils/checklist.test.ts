@@ -36,6 +36,9 @@ describe('formatChecklistValue', () => {
 
   it('appends units for length/height/price', () => {
     expect(formatChecklistValue('lengthMeters', 20)).toBe('20m')
+    // a bucket answer reads back as the range the customer picked, not a number from inside it
+    expect(formatChecklistValue('lengthMeters', '20-40')).toBe('20-40m')
+    expect(formatChecklistValue('lengthMeters', '40+')).toBe('40m+')
     expect(formatChecklistValue('heightMm', 1800)).toBe('1800mm')
     expect(formatChecklistValue('existingPrice', 2400)).toBe('$2400')
   })
