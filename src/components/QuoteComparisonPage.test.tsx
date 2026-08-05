@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { ComparisonSummary } from '../services/fencingChat'
@@ -104,6 +104,27 @@ describe('QuoteComparisonPage', () => {
 
     expect(screen.getByText('$7,200')).toBeInTheDocument()
     expect(screen.queryByText('$7,200 - $7,200')).not.toBeInTheDocument()
+  })
+
+  it('opens the instant quote dialog with the names revealed, and cancelling returns to the page intact', async () => {
+    const user = userEvent.setup()
+    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: /instant quote/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Modern Decks NSW')).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: /cancel/i }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // Same page, same data — the dialog only ever unmounts on top of it.
+    expect(screen.getByRole('heading', { name: /your local quote comparison/i })).toBeInTheDocument()
+    expect(screen.getAllByText('Business name hidden')).toHaveLength(3)
+  })
+
+  it('offers no instant quote when there is nothing to quote on', () => {
+    render(<QuoteComparisonPage comparison={{ ...baseComparison, quotes: [] }} onBack={vi.fn()} />)
+
+    expect(screen.queryByRole('button', { name: /instant quote/i })).not.toBeInTheDocument()
   })
 
   it('calls onBack when the back button is clicked', async () => {

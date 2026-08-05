@@ -16,6 +16,11 @@ dist-ssr
 .env
 .env.*
 
+
+# Temp files
+./WORKFLOW_INTEGRATION.md
+./UI_REFERNCE_FIGMA.txt
+
 # Playwright
 /test-results/
 /playwright-report/
