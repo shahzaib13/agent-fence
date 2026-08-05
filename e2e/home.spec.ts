@@ -96,8 +96,12 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
   // the thinking screen only runs once, after the brief is confirmed
   await expect(page.getByRole('heading', { name: /analysing your project/i })).toBeVisible()
 
-  await expect(page.getByText('A Plus Fencing')).toBeVisible({ timeout: 8000 })
-  await expect(page.getByRole('button', { name: /view quote/i }).first()).toBeVisible()
+  // both intents finish on the comparison page — names blurred, no lead time, no proceed button
+  await expect(page.getByRole('heading', { name: /your local quote comparison/i })).toBeVisible({ timeout: 8000 })
+  await expect(page.getByText('$152/m rate')).toBeVisible()
+  await expect(page.getByText('A Plus Fencing')).toHaveCSS('filter', /blur/)
+  await expect(page.getByText(/lead time/i)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /proceed/i })).toHaveCount(0)
 })
 
 test('other project types show the coming-soon screen without hitting the webhook', async ({ page }) => {

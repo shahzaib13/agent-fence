@@ -48,12 +48,17 @@ function QuoteCard({ quote }: { quote: ComparisonQuote }) {
 
       <div className="flex flex-wrap items-center justify-between gap-6">
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <p className={`text-2xl leading-8 text-[#062D27] ${isBestValue ? 'font-bold' : 'font-semibold'}`}>
+          {/* Who the business is stays hidden until the client commits — everything they'd
+              actually compare on is still in the clear. Cosmetic only: the name is in the
+              payload and the DOM, so this hides it from readers, not from anyone looking. */}
+          <p
+            aria-hidden="true"
+            className={`text-2xl leading-8 text-[#062D27] blur-[6px] select-none ${isBestValue ? 'font-bold' : 'font-semibold'}`}
+          >
             {quote.businessName}
           </p>
-          <p className="text-base leading-6 text-[#6B7280]">
-            ${quote.ratePerMeter}/m rate • {quote.leadTimeWeeksMin} - {quote.leadTimeWeeksMax} Weeks lead time
-          </p>
+          <span className="sr-only">Business name hidden</span>
+          <p className="text-base leading-6 text-[#6B7280]">${quote.ratePerMeter}/m rate</p>
           {quote.badges.length > 0 && (
             <div className="flex flex-wrap items-center gap-4 pt-1">
               {quote.badges.map((badge) => (
@@ -84,7 +89,9 @@ function QuoteCard({ quote }: { quote: ComparisonQuote }) {
           <p
             className={`text-[#062D27] font-bold ${isBestValue ? 'text-4xl leading-10' : 'text-3xl leading-9'}`}
           >
-            ${quote.projectTotalMin.toLocaleString()} - ${quote.projectTotalMax.toLocaleString()}
+            {quote.projectTotalMin === quote.projectTotalMax
+              ? `$${quote.projectTotalMin.toLocaleString()}`
+              : `$${quote.projectTotalMin.toLocaleString()} - $${quote.projectTotalMax.toLocaleString()}`}
           </p>
           <p className={isBestValue ? 'text-sm font-bold text-[#059669]' : 'text-sm text-[#6B7280]'}>
             {savingsLabel}
@@ -97,9 +104,14 @@ function QuoteCard({ quote }: { quote: ComparisonQuote }) {
 
 export function QuoteComparisonPage({
   comparison,
+  intent,
   onBack,
 }: {
   comparison: ComparisonSummary
+  // Both flows end here — only the headline says which one you came through. Absent (an older
+  // workflow that never reports an intent) reads as a fresh quote, since the compare branch
+  // can't fire without n8n declaring `compare_quote` in the first place.
+  intent?: 'new_quote' | 'compare_quote'
   onBack: () => void
 }) {
   return (
@@ -120,7 +132,7 @@ export function QuoteComparisonPage({
 
         <div className="mb-12 flex max-w-3xl flex-col items-center gap-4 text-center">
           <h1 className="text-[56px] leading-[1.1] font-semibold tracking-[-1.12px] text-[#062D27]">
-            Quote Direct Comparison.
+            {intent === 'compare_quote' ? 'Quote Direct Comparison.' : 'Your Local Quote Comparison.'}
           </h1>
           <p className="text-lg leading-7 text-[#6B7280]">
             We've analyzed your project and found high-value local partners that meet your technical requirements.
@@ -153,16 +165,7 @@ export function QuoteComparisonPage({
           )}
         </div>
 
-        <button
-          type="button"
-          className="mt-16 flex items-center gap-2 rounded-full bg-[#062D27] px-12 py-5 text-lg font-bold text-white transition-all duration-150 hover:scale-105 hover:bg-[#0a3f37] active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
-        >
-          Proceed with Best Value
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.67} className="h-5 w-5">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M13 6l6 6-6 6" />
-          </svg>
-        </button>
-        <p className="mt-6 text-sm text-[#6B7280]">
+        <p className="mt-16 text-sm text-[#6B7280]">
           Price protection and satisfaction guarantee included on all verified quotes.
         </p>
       </main>

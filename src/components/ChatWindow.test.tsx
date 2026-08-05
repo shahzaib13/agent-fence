@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatWindow, type ChatMessage } from './ChatWindow'
 
 const question: ChatMessage = {
@@ -26,6 +26,30 @@ function renderWindow(messages: ChatMessage[], isLoading = false, handlers: Part
 }
 
 describe('ChatWindow', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('cycles the pending bubble through its thinking lines and dots while the reply is in flight', () => {
+    vi.useFakeTimers()
+    renderWindow([question], true)
+
+    expect(screen.getByText('Thinking')).toBeInTheDocument()
+
+    // dots build up a beat at a time, then reset
+    act(() => {
+      vi.advanceTimersByTime(800)
+    })
+    expect(screen.getByText('..')).toBeInTheDocument()
+
+    // and the line itself swaps after a full cycle rather than sitting still
+    act(() => {
+      vi.advanceTimersByTime(2400)
+    })
+    expect(screen.getByText('Reading your answer')).toBeInTheDocument()
+    expect(screen.queryByText('Thinking')).not.toBeInTheDocument()
+  })
+
   it('renders an older turn in full straight away instead of replaying its reveal', () => {
     renderWindow([question, { id: 'ai-2', role: 'ai', text: 'And how long is it?' }])
 

@@ -234,7 +234,7 @@ describe('Home', () => {
     await waitFor(() => expect(screen.getByText(/roughly 35 metres, noted/i)).toBeInTheDocument())
   })
 
-  it('confirms the brief inside the thread, then shows the thinking screen and the results', async () => {
+  it('confirms the brief inside the thread, then shows the thinking screen and the comparison page', async () => {
     const user = userEvent.setup()
     const fullChecklist = {
       suburb: 'Pakenham',
@@ -285,14 +285,19 @@ describe('Home', () => {
       options: [],
       results: [
         { businessName: 'A Plus Fencing', suburb: 'Pakenham', ratePerMeter: 152, estimatedTotal: 3040, notes: '' },
+        { businessName: 'Budget Fencing', suburb: 'Pakenham', ratePerMeter: 120, estimatedTotal: 2400, notes: '' },
       ],
       avgRatePerMeter: 152,
     })
 
-    await waitFor(() => expect(screen.getByText('A Plus Fencing')).toBeInTheDocument())
-    expect(screen.getByRole('button', { name: /view quote/i })).toBeInTheDocument()
+    // a new_quote result lands on the same comparison page the compare flow uses
+    await waitFor(() => expect(screen.getByRole('heading', { name: /your local quote comparison/i })).toBeInTheDocument())
+    expect(screen.getByText('$2,400')).toBeInTheDocument()
+    expect(screen.getByText(/best value choice/i)).toBeInTheDocument()
     // the suburb shown is the customer's own, not a placeholder
-    expect(screen.getByText('Services Pakenham')).toBeInTheDocument()
+    expect(screen.getAllByText('Services Pakenham')).toHaveLength(2)
+    // and the names are behind the blur, on this flow too
+    expect(screen.getByText('A Plus Fencing')).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('keeps a no-match result in the thread so the reason is actually readable', async () => {

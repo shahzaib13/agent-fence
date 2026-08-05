@@ -1,26 +1,26 @@
 import { useRef, useState } from 'react'
-import { AIRecommendationPanel } from '../components/AIRecommendationPanel'
 import { ChatWindow, type ChatMessage } from '../components/ChatWindow'
 import { ChecklistPanel } from '../components/ChecklistPanel'
 import { ComingSoonScreen } from '../components/ComingSoonScreen'
 import { Header } from '../components/Header'
 import { HeroInputScreen } from '../components/HeroInputScreen'
 import { QuoteComparisonPage } from '../components/QuoteComparisonPage'
-import { ResultsPanel } from '../components/ResultsPanel'
 import { ThinkingScreen } from '../components/ThinkingScreen'
 import {
   sendFencingChatMessage,
   type ChatOption,
   type ChecklistData,
   type ComparisonSummary,
-  type WorkerMatch,
 } from '../services/fencingChat'
 import { diffFilledField } from '../utils/checklist'
+import { workerMatchesToComparison } from '../utils/comparison'
 import { generateId } from '../utils/id'
 
 // The whole conversation now happens in the chat thread — `thinking` only plays once, after the
-// user has confirmed their brief and the workflow goes off to rank businesses.
-type Stage = 'hero' | 'coming-soon' | 'chat' | 'thinking' | 'results'
+// user has confirmed their brief and the workflow goes off to rank businesses. There is no
+// `results` stage: both flows finish on the comparison page, which renders off `comparison`
+// state rather than off a stage.
+type Stage = 'hero' | 'coming-soon' | 'chat' | 'thinking'
 
 // Only Fence is wired to a real backend today — every other type gets the "coming soon" screen.
 const LIVE_PROJECT_TYPE = 'Fence'
@@ -38,8 +38,6 @@ export function Home() {
   const [intent, setIntent] = useState<'new_quote' | 'compare_quote' | undefined>(undefined)
   const [lastFailedText, setLastFailedText] = useState<string | null>(null)
   const [lastFailedFiles, setLastFailedFiles] = useState<File[] | null>(null)
-  const [results, setResults] = useState<WorkerMatch[] | null>(null)
-  const [avgRatePerMeter, setAvgRatePerMeter] = useState<number | null>(null)
   const [comparison, setComparison] = useState<ComparisonSummary | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [checklist, setChecklist] = useState<ChecklistData | null>(null)
@@ -93,10 +91,10 @@ export function Home() {
       // suburb, or none of the ones that do offer that fence type. That belongs back in the
       // thread, where they can correct the suburb or fence type in one line, not on an empty
       // results page where the explanation would never be shown at all.
+      // Matches from the new-quote flow are folded into the same comparison shape, so both
+      // intents finish on one page instead of two layouts that have to be kept in step.
       if (response.type === 'result' && response.results.length > 0) {
-        setResults(response.results)
-        setAvgRatePerMeter(response.avgRatePerMeter)
-        setStage('results')
+        setComparison(workerMatchesToComparison(response.results))
         return
       }
 
@@ -177,8 +175,6 @@ export function Home() {
     setIntent(undefined)
     setLastFailedText(null)
     setLastFailedFiles(null)
-    setResults(null)
-    setAvgRatePerMeter(null)
     setComparison(null)
     setDescription('')
     setSelectedType(null)
@@ -188,10 +184,10 @@ export function Home() {
     setStage('hero')
   }
 
-  // n8n's compare_quote branch produces a fully separate results page (Figma: "Quote Direct
-  // Comparison") rather than reusing the layouts below.
+  // Where every finished conversation lands, whichever intent it ran under (Figma: "Quote
+  // Direct Comparison").
   if (comparison) {
-    return <QuoteComparisonPage comparison={comparison} onBack={handleRestart} />
+    return <QuoteComparisonPage comparison={comparison} intent={intent} onBack={handleRestart} />
   }
 
   // The thread owns the viewport: the page itself never scrolls, the message list and the
@@ -252,24 +248,6 @@ export function Home() {
 
       {stage === 'coming-soon' && (
         <ComingSoonScreen projectType={selectedType ?? 'This'} onBack={handleRestart} />
-      )}
-
-      {stage === 'results' && results && (
-        <div className="flex flex-1 flex-col items-center px-4 pt-16 pb-24 animate-[fade-in-up_0.4s_ease-out]">
-          <div className="mb-10 flex max-w-2xl flex-col items-center gap-2 text-center">
-            <h1 className="text-4xl leading-tight font-semibold tracking-tight text-[#062D27]">
-              Matching your project with local specialists.
-            </h1>
-            <p className="text-lg text-gray-500">
-              Based on your answers, we've identified the best-fit fencing businesses in your area.
-            </p>
-          </div>
-
-          <div className="grid w-full max-w-6xl grid-cols-1 gap-8 lg:grid-cols-[1fr_400px]">
-            <ResultsPanel results={results} avgRatePerMeter={avgRatePerMeter} onRestart={handleRestart} />
-            <AIRecommendationPanel onModify={handleRestart} />
-          </div>
-        </div>
       )}
 
       <footer className="flex justify-center py-8">
