@@ -33,8 +33,10 @@ export interface ComparisonQuote {
   ratePerMeter: number
   projectTotalMin: number
   projectTotalMax: number
-  leadTimeWeeksMin: number
-  leadTimeWeeksMax: number
+  // Still sent by the workflow, but nothing renders it any more — optional so the client-side
+  // new-quote mapping isn't forced to invent a lead time it has no data for.
+  leadTimeWeeksMin?: number
+  leadTimeWeeksMax?: number
   badges: string[]
   tag: string | null
   savingsFromAverage: number | null
@@ -66,12 +68,11 @@ export interface FencingChatResponse {
   checklistComplete?: boolean
 }
 
-// Vite's built-in DEV/PROD flags (true for `npm run dev`, false for a production build like
-// Vercel's) pick the right n8n endpoint automatically — the test webhook locally, the real one
-// once deployed. `VITE_FENCING_CHAT_WEBHOOK_URL` still overrides either if ever needed.
-const DEFAULT_FENCING_CHAT_WEBHOOK_URL = import.meta.env.DEV
-  ? 'https://n8n.srv1506542.hstgr.cloud/webhook-test/fencing-chat-api'
-  : 'https://n8n.srv1506542.hstgr.cloud/webhook/fencing-chat-api'
+// The production n8n webhook everywhere, local dev included — the test webhook only answers
+// while someone has the n8n canvas open in "listen" mode, so pointing dev at it meant local
+// runs failed unless the workflow was being watched. `VITE_FENCING_CHAT_WEBHOOK_URL` overrides
+// it (set it to the `/webhook-test/` URL when you *do* want to step through the canvas).
+const DEFAULT_FENCING_CHAT_WEBHOOK_URL = 'https://n8n.srv1506542.hstgr.cloud/webhook/fencing-chat-api'
 
 const FENCING_CHAT_WEBHOOK_URL = import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL ?? DEFAULT_FENCING_CHAT_WEBHOOK_URL
 

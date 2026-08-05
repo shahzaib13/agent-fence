@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useWordReveal } from '../hooks/useWordReveal'
 import type { ChatOption, ChecklistData } from '../services/fencingChat'
 import { checklistFieldLabel } from '../utils/checklist'
@@ -177,7 +177,22 @@ function UserTurn({ text }: { text: string }) {
   )
 }
 
+const THINKING_LINES = ['Thinking', 'Reading your answer', 'Checking local pricing', 'Lining up businesses']
+
+const TICK_MS = 400
+// Ticks spent on one line before it swaps — 8 × 400ms, so the dots cycle twice per phrase.
+const TICKS_PER_LINE = 8
+
 function PendingTurn() {
+  // A stalled request reads as a broken one. One interval drives both tells: the dots cycle
+  // every tick, the phrase swaps every eighth, so the bubble is never still while we wait.
+  const [tick, setTick] = useState(0)
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), TICK_MS)
+    return () => clearInterval(timer)
+  }, [])
+
   return (
     <div className="flex flex-col gap-3 animate-[fade-in-up_0.3s_ease-out]">
       <p className="text-[11px] font-medium tracking-wide text-gray-400">AI</p>
@@ -190,7 +205,18 @@ function PendingTurn() {
           role="status"
           aria-label="Waiting for a reply"
         >
+          {/* One steady announcement for screen readers — the rotating line below is decoration
+              and would otherwise re-announce itself every few seconds. */}
           <span className="sr-only">Thinking…</span>
+          {/* The same sweep the shimmer bars use, clipped to the text itself. */}
+          <span
+            aria-hidden="true"
+            className="mb-3.5 flex text-sm font-medium bg-[linear-gradient(90deg,#9CA3AF_0%,#9CA3AF_38%,#062D27_50%,#9CA3AF_62%,#9CA3AF_100%)] bg-size-[300%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2.2s_linear_infinite]"
+          >
+            {THINKING_LINES[Math.floor(tick / TICKS_PER_LINE) % THINKING_LINES.length]}
+            {/* Fixed width so the line doesn't twitch sideways as dots come and go. */}
+            <span className="w-4 shrink-0 text-left">{'.'.repeat(tick % 4)}</span>
+          </span>
           <span className="flex flex-col gap-2.5" aria-hidden="true">
             {['w-11/12', 'w-full', 'w-2/3'].map((width, index) => (
               <span

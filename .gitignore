@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Env files stay local — never commit a webhook URL or key
+.env
+.env.*
+
 # Playwright
 /test-results/
 /playwright-report/

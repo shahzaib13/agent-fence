@@ -48,7 +48,7 @@ const baseComparison: ComparisonSummary = {
 
 describe('QuoteComparisonPage', () => {
   it('renders the header, headline, and stat cards from the comparison summary', () => {
-    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage comparison={baseComparison} intent="compare_quote" onBack={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: /quote direct comparison/i })).toBeInTheDocument()
     expect(screen.getByText('Aura')).toBeInTheDocument()
@@ -70,6 +70,40 @@ describe('QuoteComparisonPage', () => {
     render(<QuoteComparisonPage comparison={{ ...baseComparison, quotes: [] }} onBack={vi.fn()} />)
 
     expect(screen.getByText(/no comparable quotes found yet/i)).toBeInTheDocument()
+  })
+
+  it('titles the page by intent, so a fresh quote is not called a direct comparison', () => {
+    const { rerender } = render(<QuoteComparisonPage comparison={baseComparison} intent="new_quote" onBack={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: /your local quote comparison/i })).toBeInTheDocument()
+
+    rerender(<QuoteComparisonPage comparison={baseComparison} intent="compare_quote" onBack={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: /quote direct comparison/i })).toBeInTheDocument()
+  })
+
+  it('hides every business name behind a blur and announces it as hidden', () => {
+    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+
+    const name = screen.getByText('Modern Decks NSW')
+    expect(name).toHaveAttribute('aria-hidden', 'true')
+    expect(name.className).toMatch(/blur-/)
+    expect(screen.getAllByText('Business name hidden')).toHaveLength(3)
+    // Everything they'd actually compare on stays readable
+    expect(screen.getByText('$118/m rate')).toBeInTheDocument()
+  })
+
+  it('shows neither a lead time nor a proceed button', () => {
+    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+
+    expect(screen.queryByText(/lead time/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /proceed/i })).not.toBeInTheDocument()
+  })
+
+  it('collapses a single-figure estimate instead of printing the same number twice', () => {
+    const flat = { ...baseComparison.quotes[0], projectTotalMin: 7200, projectTotalMax: 7200 }
+    render(<QuoteComparisonPage comparison={{ ...baseComparison, quotes: [flat] }} onBack={vi.fn()} />)
+
+    expect(screen.getByText('$7,200')).toBeInTheDocument()
+    expect(screen.queryByText('$7,200 - $7,200')).not.toBeInTheDocument()
   })
 
   it('calls onBack when the back button is clicked', async () => {
