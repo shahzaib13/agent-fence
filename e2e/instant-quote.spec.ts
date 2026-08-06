@@ -6,9 +6,43 @@ function pick(dialog: Locator, businessName: string) {
   return dialog.locator('label').filter({ hasText: businessName })
 }
 
+// Verification runs on Firebase phone auth, which means a real reCAPTCHA and a real SMS —
+// neither belongs in a test run. The dev server hands out modules by path, so the whole OTP
+// service is swapped for one that answers locally: same exports, same contract, no network.
+// Anything the flow itself gets wrong still fails here; only Google's half is faked.
+async function stubOtpService(page: Page) {
+  await page.route('**/src/services/otp.ts*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `
+        export const RECAPTCHA_CONTAINER_ID = 'recaptcha-container'
+        export const OTP_LENGTH = 6
+        export function releaseVerifier() {}
+        export async function sendOtp(phoneE164) {
+          return { verificationId: 'e2e-verification', phoneE164 }
+        }
+        export async function verifyOtp(session, code) {
+          if (!/^\\d{6}$/.test(code)) throw new Error('That code looks incomplete. Enter all six digits.')
+          return 'e2e-uid'
+        }
+      `,
+    }),
+  )
+
+  // Verifying also writes the lead into Firestore, and a real database is no more welcome in a
+  // test run than a real SMS. The document itself is covered by jobs.test.ts.
+  await page.route('**/src/services/jobs.ts*', (route) =>
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export async function submitJob() { return 'VI-12345' }`,
+    }),
+  )
+}
+
 // Three matches on the first turn, so every test here starts one click away from the
 // comparison page rather than replaying the whole conversation.
 async function goToResults(page: Page) {
+  await stubOtpService(page)
   await page.route('**/fencing-chat-api', async (route) => {
     await route.fulfill({
       json: {

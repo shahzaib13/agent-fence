@@ -20,6 +20,7 @@ function renderWindow(messages: ChatMessage[], isLoading = false, handlers: Part
       isLoading={isLoading}
       onSend={handlers.onSend ?? (() => {})}
       onSelectOption={handlers.onSelectOption ?? (() => {})}
+      onSelectPlace={handlers.onSelectPlace ?? (() => {})}
       onRetry={handlers.onRetry ?? (() => {})}
     />,
   )

@@ -19,6 +19,8 @@ export function workerMatchesToComparison(results: WorkerMatch[]): ComparisonSum
     quotes: [...results]
       .sort((a, b) => a.estimatedTotal - b.estimatedTotal)
       .map((r, index) => ({
+        businessId: r.businessId,
+        autoAcceptsAi: r.autoAcceptsAi,
         businessName: r.businessName,
         ratePerMeter: r.ratePerMeter,
         // A single estimate, not a range — the card renders one figure when both ends match.

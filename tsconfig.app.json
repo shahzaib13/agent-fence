@@ -4,7 +4,8 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    // "google.maps" is types-only — the SDK itself arrives as a <script> at runtime.
+    "types": ["vite/client", "google.maps"],
     "allowArbitraryExtensions": true,
     "skipLibCheck": true,
 

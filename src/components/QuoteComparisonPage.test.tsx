@@ -1,4 +1,6 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render as renderBare, screen, waitFor, within } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { MemoryRouter } from 'react-router'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { ComparisonSummary } from '../services/fencingChat'
@@ -45,6 +47,9 @@ const baseComparison: ComparisonSummary = {
     },
   ],
 }
+
+// Header links need a router context; these pages are always inside one in the app.
+const render = (ui: ReactElement) => renderBare(ui, { wrapper: MemoryRouter })
 
 describe('QuoteComparisonPage', () => {
   it('renders the header, headline, and stat cards from the comparison summary', () => {

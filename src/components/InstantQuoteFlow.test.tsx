@@ -2,7 +2,9 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComparisonQuote } from '../services/fencingChat'
+import { submitJob } from '../services/jobs'
 import { sendOtp, verifyOtp } from '../services/otp'
+import type { SuburbPlace } from '../services/places'
 import { InstantQuoteFlow } from './InstantQuoteFlow'
 
 // The stub service sleeps to imitate a network round trip — mocked away so the tests aren't
@@ -10,11 +12,32 @@ import { InstantQuoteFlow } from './InstantQuoteFlow'
 vi.mock('../services/otp', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/otp')>()),
   sendOtp: vi.fn(async (phoneE164: string) => ({ verificationId: 'test-verification', phoneE164 })),
-  verifyOtp: vi.fn(async () => {}),
+  verifyOtp: vi.fn(async () => 'firebase-uid'),
 }))
+
+// Verifying now also writes the lead. Firestore stays out of it here; jobs.test.ts covers the
+// document that gets built.
+vi.mock('../services/jobs', () => ({ submitJob: vi.fn(async () => 'VI-12345') }))
+
+const pakenham: SuburbPlace = {
+  suburb: 'Pakenham',
+  state: 'VIC',
+  stateFullName: 'Victoria',
+  postcode: '3810',
+  country: 'AU',
+  countryName: 'Australia',
+  displayLabel: 'Pakenham, VIC 3810',
+  formattedAddress: 'Pakenham VIC 3810',
+  latitude: -38.0776708,
+  longitude: 145.4818724,
+  placeId: 'ChIJxUv0xoYb1moRsOCMIXVWBAU',
+  placeTypes: ['locality', 'political'],
+  name: 'Pakenham',
+}
 
 const quotes: ComparisonQuote[] = [
   {
+    businessId: 'biz-1',
     businessName: 'Modern Decks NSW',
     ratePerMeter: 118,
     projectTotalMin: 7200,
@@ -24,6 +47,8 @@ const quotes: ComparisonQuote[] = [
     savingsFromAverage: 1900,
   },
   {
+    businessId: 'biz-2',
+    autoAcceptsAi: true,
     businessName: 'Heritage Decking Co.',
     ratePerMeter: 145,
     projectTotalMin: 7850,
@@ -33,6 +58,7 @@ const quotes: ComparisonQuote[] = [
     savingsFromAverage: 1250,
   },
   {
+    businessId: 'biz-3',
     businessName: 'Coastal Timber Solutions',
     ratePerMeter: 175,
     projectTotalMin: 8400,
@@ -44,7 +70,7 @@ const quotes: ComparisonQuote[] = [
 ]
 
 function renderFlow(onClose = vi.fn()) {
-  render(<InstantQuoteFlow quotes={quotes} onClose={onClose} />)
+  render(<InstantQuoteFlow quotes={quotes} place={pakenham} onClose={onClose} />)
   return { user: userEvent.setup(), onClose }
 }
 
@@ -187,6 +213,19 @@ describe('InstantQuoteFlow', () => {
     const confirmation = await screen.findByRole('heading', { name: /you're all set/i })
     expect(confirmation).toBeInTheDocument()
     expect(verifyOtp).toHaveBeenCalledWith({ verificationId: 'test-verification', phoneE164: '+923029447610' }, '123456')
+    // The lead is saved with the businesses that were actually ticked, under the verified uid
+    expect(submitJob).toHaveBeenCalledWith({
+      fullName: 'Ayesha Khan',
+      email: 'ayesha@example.com',
+      phoneE164: '+923029447610',
+      uid: 'firebase-uid',
+      place: pakenham,
+      // Each one carries its own AI auto-accept toggle, which decides where its copy lands
+      businesses: [
+        { id: 'biz-1', autoAcceptsAi: false },
+        { id: 'biz-2', autoAcceptsAi: true },
+      ],
+    })
     const list = screen.getByRole('list')
     expect(within(list).getAllByRole('listitem')).toHaveLength(2)
 

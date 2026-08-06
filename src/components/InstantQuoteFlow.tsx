@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type InputHTMLAttributes } from 'react'
 import type { ComparisonQuote } from '../services/fencingChat'
-import { OTP_LENGTH, RECAPTCHA_CONTAINER_ID, sendOtp, verifyOtp, type OtpSession } from '../services/otp'
+import { submitJob } from '../services/jobs'
+import { OTP_LENGTH, RECAPTCHA_CONTAINER_ID, releaseVerifier, sendOtp, verifyOtp, type OtpSession } from '../services/otp'
+import type { SuburbPlace } from '../services/places'
 import { DEFAULT_COUNTRY_CODE, isValidPhone, normalisePhone } from '../utils/phone'
+import { OtpInput } from './OtpInput'
 import { QuoteCard } from './QuoteCard'
 
 // Choose who to contact -> hand over contact details -> verify the phone number. One dialog
@@ -76,10 +79,20 @@ function TextField({
   )
 }
 
-export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[]; onClose: () => void }) {
+export function InstantQuoteFlow({
+  quotes,
+  place,
+  onClose,
+}: {
+  quotes: ComparisonQuote[]
+  /** The suburb the customer picked — every field of `locationData` on the saved job. */
+  place: SuburbPlace | null
+  onClose: () => void
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const [step, setStep] = useState<Step>('select')
   const [selected, setSelected] = useState<string[]>([])
+  const selectedQuotes = quotes.filter((quote) => selected.includes(quote.businessName))
 
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -91,8 +104,8 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
   const [digits, setDigits] = useState<string[]>(() => Array<string>(OTP_LENGTH).fill(''))
   const [otpError, setOtpError] = useState<string | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
+  const [verifiedUid, setVerifiedUid] = useState<string | null>(null)
   const [cooldown, setCooldown] = useState(0)
-  const digitRefs = useRef<(HTMLInputElement | null)[]>([])
 
   // Native <dialog> so focus trapping, Esc, and the inert background come from the platform
   // rather than from us reimplementing them.
@@ -102,6 +115,7 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
     document.body.style.overflow = 'hidden'
     return () => {
       document.body.style.overflow = overflow
+      releaseVerifier()
     }
   }, [])
 
@@ -110,10 +124,6 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
     const timer = setTimeout(() => setCooldown((seconds) => seconds - 1), 1000)
     return () => clearTimeout(timer)
   }, [cooldown])
-
-  useEffect(() => {
-    if (step === 'otp') digitRefs.current[0]?.focus()
-  }, [step])
 
   // Closing is driven from here rather than from the dialog's own `close` event: React doesn't
   // reliably deliver that one (it doesn't bubble), which left the dialog closed but still
@@ -175,30 +185,28 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
     void requestCode(cleanPhone)
   }
 
-  function writeDigits(startIndex: number, value: string) {
-    const typed = value.replace(/\D/g, '')
-    if (!typed) {
-      setDigits((current) => current.map((digit, index) => (index === startIndex ? '' : digit)))
-      return
-    }
-    setDigits((current) => {
-      const next = [...current]
-      for (let offset = 0; offset < typed.length && startIndex + offset < OTP_LENGTH; offset += 1) {
-        next[startIndex + offset] = typed[offset]
-      }
-      return next
-    })
-    digitRefs.current[Math.min(startIndex + typed.length, OTP_LENGTH - 1)]?.focus()
-    setOtpError(null)
-  }
-
   async function handleVerify(event: FormEvent) {
     event.preventDefault()
     if (!session) return
     setIsVerifying(true)
     setOtpError(null)
     try {
-      await verifyOtp(session, digits.join(''))
+      // A code is single use, so a verification that succeeded is remembered: if the write that
+      // follows fails, pressing the button again retries only the write. Otherwise a lost lead
+      // would be unrecoverable — their number is verified and the code is already spent.
+      const uid = verifiedUid ?? (await verifyOtp(session, digits.join('')))
+      setVerifiedUid(uid)
+
+      await submitJob({
+        fullName,
+        email,
+        phoneE164: session.phoneE164,
+        uid,
+        place,
+        businesses: selectedQuotes.flatMap((quote) =>
+          quote.businessId ? [{ id: quote.businessId, autoAcceptsAi: quote.autoAcceptsAi === true }] : [],
+        ),
+      })
       setStep('done')
     } catch (error) {
       setOtpError(error instanceof Error ? error.message : "That code didn't match. Try again.")
@@ -209,7 +217,6 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
 
   const stepIndex = FORM_STEPS.indexOf(step)
   const { title, caption } = PANEL_LABEL[step]
-  const selectedQuotes = quotes.filter((quote) => selected.includes(quote.businessName))
 
   const primaryButton =
     'rounded-2xl bg-[#062D27] px-5 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[#062D27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]'
@@ -373,35 +380,15 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
                 Enter the {OTP_LENGTH}-digit code sent to <span className="font-semibold text-[#062D27]">{phone}</span>
               </p>
 
-              <div role="group" aria-label={`${OTP_LENGTH}-digit verification code`} className="flex gap-2 sm:gap-3">
-                {digits.map((digit, index) => (
-                  <input
-                    key={index}
-                    ref={(element) => {
-                      digitRefs.current[index] = element
-                    }}
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete={index === 0 ? 'one-time-code' : 'off'}
-                    maxLength={1}
-                    aria-label={`Digit ${index + 1}`}
-                    aria-invalid={otpError ? true : undefined}
-                    value={digit}
-                    onFocus={(event) => event.target.select()}
-                    onChange={(event) => writeDigits(index, event.target.value)}
-                    onPaste={(event) => {
-                      event.preventDefault()
-                      writeDigits(0, event.clipboardData.getData('text'))
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Backspace' && !digit && index > 0) digitRefs.current[index - 1]?.focus()
-                    }}
-                    className={`h-14 w-full min-w-0 rounded-2xl border-2 text-center text-2xl font-semibold text-[#062D27] transition-colors focus:outline-none focus-visible:border-[#062D27] focus-visible:ring-2 focus-visible:ring-[#062D27]/15 sm:h-16 ${
-                      otpError ? 'border-red-300 bg-red-50/40' : 'border-gray-200 bg-white'
-                    }`}
-                  />
-                ))}
-              </div>
+              <OtpInput
+                digits={digits}
+                onChange={(next) => {
+                  setDigits(next)
+                  setOtpError(null)
+                }}
+                hasError={!!otpError}
+                autoFocus={step === 'otp'}
+              />
 
               {otpError && (
                 <p role="alert" className="text-sm text-red-600">
@@ -426,8 +413,6 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
                 </button>
               </div>
 
-              {/* Firebase's invisible reCAPTCHA mounts here once phone auth is wired up. */}
-              <div id={RECAPTCHA_CONTAINER_ID} />
             </form>
           )}
 
@@ -454,6 +439,11 @@ export function InstantQuoteFlow({ quotes, onClose }: { quotes: ComparisonQuote[
             </div>
           )}
         </div>
+
+        {/* Firebase's invisible reCAPTCHA mounts here. Outside the step branches on purpose:
+            the code is requested from the details step, and the verifier can only be built
+            against a container that is already in the DOM. */}
+        <div id={RECAPTCHA_CONTAINER_ID} />
 
         <div className="flex items-center justify-end gap-3 border-t border-gray-100 px-5 py-4 sm:px-8">
           {step === 'select' && (

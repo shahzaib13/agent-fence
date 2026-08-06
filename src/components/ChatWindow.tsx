@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useWordReveal } from '../hooks/useWordReveal'
 import type { ChatOption, ChecklistData } from '../services/fencingChat'
+import type { SuburbPlace, SuburbSuggestion } from '../services/places'
 import { checklistFieldLabel } from '../utils/checklist'
 import { ConfirmationCard } from './ConfirmationCard'
+import { SuburbPicker } from './SuburbPicker'
 
 export interface ChatMessage {
   id: string
@@ -14,6 +16,15 @@ export interface ChatMessage {
   isConfirmation?: boolean
   // Set the instant the user picks a tile: the whole option row collapses down to just this one.
   answered?: ChatOption
+  // This turn wants a suburb, so it renders the Google-backed picker instead of relying on the
+  // composer. `suggestions`/`query` are only set on the local turn that answers a typed reply —
+  // the picker opens pre-loaded with what that text matched, so confirming is one click.
+  expects?: 'suburb'
+  suggestions?: SuburbSuggestion[]
+  query?: string
+  // Carried from the search that produced `suggestions` so the details lookup that follows
+  // bills as part of the same Places session rather than opening a second one.
+  sessionToken?: string
   // Which checklist field that pick filled in. Only knowable once the *next* response comes
   // back (Home diffs the checklist), so the collapsed chip shows the bare label until then.
   answeredField?: string
@@ -84,14 +95,18 @@ function AiTurn({
   message,
   animate,
   disabled,
+  isLast,
   onSelect,
+  onSelectPlace,
   onRetry,
   onGrow,
 }: {
   message: ChatMessage
   animate: boolean
   disabled: boolean
+  isLast: boolean
   onSelect: (option: ChatOption) => void
+  onSelectPlace: (place: SuburbPlace) => void
   onRetry: () => void
   onGrow: () => void
 }) {
@@ -160,6 +175,26 @@ function AiTurn({
         )}
         {revealDone && hasOptions && !message.isConfirmation && (
           <OptionRow message={message} disabled={disabled} onSelect={onSelect} />
+        )}
+
+        {/* A suburb turn answers itself through the picker, so the composer never has to carry
+            it. Only the newest one stays live — earlier ones collapse to what was picked. */}
+        {revealDone && message.expects === 'suburb' && message.answered && (
+          <span className="inline-flex items-center gap-2.5 rounded-2xl border border-[#062D27] bg-[#EFF6F5] px-4 py-2.5 animate-[pop-in_0.35s_ease-out]">
+            <CheckBadge />
+            <span className="text-sm font-semibold text-[#062D27]">
+              {checklistFieldLabel('suburb')}: {message.answered.label}
+            </span>
+          </span>
+        )}
+        {revealDone && message.expects === 'suburb' && !message.answered && isLast && (
+          <SuburbPicker
+            initialQuery={message.query}
+            initialSuggestions={message.suggestions}
+            sessionToken={message.sessionToken}
+            disabled={disabled}
+            onSelect={onSelectPlace}
+          />
         )}
       </div>
     </div>
@@ -237,12 +272,14 @@ export function ChatWindow({
   isLoading,
   onSend,
   onSelectOption,
+  onSelectPlace,
   onRetry,
 }: {
   messages: ChatMessage[]
   isLoading: boolean
   onSend: (text: string) => void
   onSelectOption: (messageId: string, option: ChatOption) => void
+  onSelectPlace: (messageId: string, place: SuburbPlace) => void
   onRetry: () => void
 }) {
   const [draft, setDraft] = useState('')
@@ -300,7 +337,9 @@ export function ChatWindow({
                 // replay every message that came before it.
                 animate={message.id === lastAiId}
                 disabled={isLoading}
+                isLast={message.id === lastAiId}
                 onSelect={(option) => onSelectOption(message.id, option)}
+                onSelectPlace={(place) => onSelectPlace(message.id, place)}
                 onRetry={onRetry}
                 onGrow={stickToBottom}
               />

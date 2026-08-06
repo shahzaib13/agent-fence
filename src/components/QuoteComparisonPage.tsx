@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { ComparisonSummary } from '../services/fencingChat'
 import { Header } from './Header'
+import type { SuburbPlace } from '../services/places'
 import { InstantQuoteFlow } from './InstantQuoteFlow'
 import { QuoteCard } from './QuoteCard'
 
@@ -33,9 +34,13 @@ function StatCard({
 export function QuoteComparisonPage({
   comparison,
   intent,
+  place,
   onBack,
 }: {
   comparison: ComparisonSummary
+  // Carried through from the conversation rather than re-derived here: the saved job records
+  // the whole place, and this page is the last screen before it is written.
+  place?: SuburbPlace | null
   // Both flows end here — only the headline says which one you came through. Absent (an older
   // workflow that never reports an intent) reads as a fresh quote, since the compare branch
   // can't fire without n8n declaring `compare_quote` in the first place.
@@ -123,7 +128,11 @@ export function QuoteComparisonPage({
       {/* Mounted only while open, so closing it drops straight back to this page with its
           state untouched — no route change, no refetch. */}
       {isInstantQuoteOpen && (
-        <InstantQuoteFlow quotes={comparison.quotes} onClose={() => setIsInstantQuoteOpen(false)} />
+        <InstantQuoteFlow
+          quotes={comparison.quotes}
+          place={place ?? null}
+          onClose={() => setIsInstantQuoteOpen(false)}
+        />
       )}
     </div>
   )

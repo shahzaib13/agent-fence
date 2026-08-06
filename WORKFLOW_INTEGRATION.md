@@ -120,8 +120,49 @@ interface FencingChatRequest {
   sessionId: string  // generated client-side, unchanged for the whole conversation
   intent?: 'new_quote' | 'compare_quote'  // see "Intent is locked by the client" below
   knownChecklist?: string  // JSON of the already-known fields, see below
+  place?: string  // JSON of the confirmed Google place behind `suburb`, see below
 }
 ```
+
+### `place` — the suburb, resolved rather than typed
+
+`suburb` is the only free-text field in the checklist, and the only one where
+a typo fails silently: `normaliseSuburb` finds no exact match and the customer
+is told nobody services them. So the frontend no longer lets it be typed. When
+a turn comes back tagged `expects: 'suburb'` (see the response body), the reply
+box is replaced by a Google Places picker restricted to Australia, and only a
+place the customer *picked* counts as an answer. If they type into the composer
+anyway, that text is looked up against Places first and offered back as
+suggestions to confirm — the workflow is not called until one is chosen.
+
+`message` then carries the canonical label, `"Pakenham, VIC 3810"`, which
+`normaliseSuburb` already reduces to `pakenham` — so **ranking needs no
+change**. `place` carries everything the label throws away:
+
+```jsonc
+{
+  "suburb": "Pakenham", "state": "VIC", "stateFullName": "Victoria",
+  "postcode": "3810", "displayLabel": "Pakenham, VIC 3810",
+  "formattedAddress": "Pakenham VIC 3810",
+  "latitude": -38.0776708, "longitude": 145.4818724,
+  "placeId": "ChIJxUv0xoYb1moRsOCMIXVWBAU",
+  "placeTypes": ["locality", "political"], "name": "Pakenham"
+}
+```
+
+Field names match the signup records in Firestore, so the lead can be written
+without remapping. **`Normalize Input1` has to carry `place` through** the way
+it already carries `knownChecklist`, and the final result nodes have to echo
+it, or the postcode/coordinates/placeId stop at the webhook.
+
+No agent should read `place` — it is pass-through data, and putting it in a
+prompt only gives the model more to hallucinate about.
+
+⚠️ **What this does *not* fix:** two suburbs with the same name in different
+states. The frontend now knows the customer means Pakenham **VIC**, but
+business records carry `serviceSuburbs: ['Pakenham', …]` — bare names with no
+state — so the ranking has nothing to compare that against. Real
+disambiguation needs state (or place ids) on the business side of the data.
 
 ### `knownChecklist` — why the client restates what it already knows
 
@@ -210,10 +251,45 @@ type FencingChatResponse = {
     }[]
   } | null
   intent?: 'new_quote' | 'compare_quote'   // see "Known issues" — not present on every turn
+  expects?: 'suburb'                       // this turn wants a picked place, not typed text
   checklist?: Record<string, string | number | boolean | null> | null
   checklistComplete?: boolean
 }
 ```
+
+### `expects` — the turn that must not be answered by typing
+
+Both response-formatting nodes send it. `'suburb'` goes out on any turn whose
+question is the suburb, derived from the checklist rather than from the model —
+`suburb` is the first field in both agents' field lists, so it is the field due
+whenever it is still missing:
+
+```js
+// Format New-Quote Result1
+const expectsSuburb = nextField === 'suburb' && options.length === 0;
+// Format Comparison Result — scoped to the flow whose output actually reaches the client
+const expectsSuburb = intent === 'compare_quote' && missing[0] === 'suburb' && options.length === 0;
+
+// …and in the returned json, alongside `options`
+...(expectsSuburb ? { expects: 'suburb' } : {}),
+```
+
+The empty-options guard keeps the picker off a turn that is asking something
+else — every other field is answered by tapping an option. The key is omitted
+rather than set to null when there's nothing special to collect.
+
+Without it the frontend can't tell a suburb question from any other free-text
+turn, so the picker never opens and suburbs go back to being typed — which is
+the failure this whole path exists to prevent. It was safe to add ahead of the
+client: an older frontend ignores the field, and a frontend without a Places
+key ignores it too.
+
+The export in `n8n/` is only a file — the change reaches the live workflow when
+that JSON is imported into n8n (or the same two lines are edited on the canvas).
+
+Worth adding to the agent prompts at the same time: *"the suburb arrives
+already formatted as `Suburb, STATE POSTCODE` — store it as-is, don't reformat
+it, and never ask for it again."*
 
 ### `checklist` — the important field for the frontend's live progress UI
 
