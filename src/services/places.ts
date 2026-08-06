@@ -161,6 +161,27 @@ function toSuburbPlace(details: google.maps.places.PlaceResult, placeId: string)
   }
 }
 
+/**
+ * The part of a line of text worth searching for a suburb. Quote documents carry a whole street
+ * address ("12 Smith St, Pakenham VIC 3810"), and the search is restricted to regions — a full
+ * address matches nothing at all. A postcode is the most reliable thing in an Australian
+ * address, so it wins; failing that, the tail end is where the suburb lives.
+ */
+export function suburbSearchQuery(text: string): string {
+  const trimmed = String(text ?? '').trim()
+  const postcode = trimmed.match(/\b(\d{4})\b/)
+  if (postcode) return postcode[1]
+
+  const parts = trimmed
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  // Last segment is usually "Pakenham VIC"; the one before it may be the street.
+  const tail = parts.length > 1 ? parts[parts.length - 1] : trimmed
+  // Street numbers are noise to a region search.
+  return tail.replace(/^\d+[a-z]?\s+/i, '').trim() || trimmed
+}
+
 /** Australian suburbs matching what's been typed. Returns [] for anything too short to be useful. */
 export async function searchSuburbs(input: string, sessionToken: string): Promise<SuburbSuggestion[]> {
   const query = input.trim()

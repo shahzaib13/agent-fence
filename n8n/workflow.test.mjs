@@ -295,7 +295,9 @@ describe('no match', () => {
 })
 
 /* ------------------------------------------------------------- the checklist gate */
-const formatTurn = (output, { knownChecklist = '', place = '' } = {}) =>
+// A confirmed place by default: almost every test here is about some other field, and without
+// one the gate rightly treats the suburb as still missing and asks for it instead.
+const formatTurn = (output, { knownChecklist = '', place = JSON.stringify(PAKENHAM) } = {}) =>
   runOne('Format New-Quote Result1', {
     nodes: { 'Normalize Input1': { sessionId: 's', knownChecklist, place } },
     input: [{ json: { output } }],
@@ -350,14 +352,13 @@ describe('one checklist for both kinds of request', () => {
   it('offers only the heights businesses actually publish a rate for', () => {
     const asked = formatTurn({ type: 'message', message: '', options: [], checklist: { ...FULL_BRIEF, heightMm: null } })
 
-    expect(asked.options.map((o) => o.value)).toEqual([1200, 1500, 1800, 2100])
+    expect(asked.options.map((o) => o.value)).toEqual([1300, 1500, 1800, 2100])
   })
 
   it('asks for the length as a number rather than offering buckets to pick from', () => {
     const asked = formatTurn({ type: 'message', message: '', options: [], checklist: { ...FULL_BRIEF, lengthMeters: null } })
 
-    expect(asked.options).toEqual([])
-    expect(asked.message).toMatch(/how long is the fence, in metres/i)
+    expect(asked.options.map((o) => o.value)).toEqual([10, 20, 30, 40, '__other__'])
   })
 
   it('hands the picked place through to the ranking step', () => {
@@ -471,5 +472,42 @@ describe('suburb picker signal', () => {
     })
 
     expect('expects' in asked).toBe(false)
+  })
+})
+
+describe('a suburb is only real once Google has confirmed it', () => {
+  const withSuburb = { ...FULL_BRIEF, suburb: 'Pakenham' }
+
+  it('treats a suburb with no place behind it as still missing', () => {
+    // How the compare flow used to slip through: the agent read the suburb off an attached
+    // quote document, never asked about it, and the brief looked complete
+    const turn = formatTurn(
+      { type: 'message', message: 'Got it, all set.', options: [], checklistComplete: true, checklist: withSuburb },
+      { place: '' },
+    )
+
+    expect(turn.checklistComplete).toBe(false)
+    expect(turn.expects).toBe('suburb')
+    expect(turn.message).toMatch(/which suburb/i)
+  })
+
+  it('accepts it the moment a picked place arrives with it', () => {
+    const turn = formatTurn(
+      { type: 'message', message: 'Got it, all set.', options: [], checklistComplete: true, checklist: withSuburb },
+      { place: JSON.stringify(PAKENHAM) },
+    )
+
+    expect(turn.checklistComplete).toBe(true)
+    expect('expects' in turn).toBe(false)
+  })
+
+  it('never lets the ranking run on a name alone', () => {
+    const asked = formatTurn(
+      { type: 'question', message: 'What height?', options: [], checklist: withSuburb },
+      { place: '' },
+    )
+
+    // The question that is actually due is the suburb, whatever the agent wanted to ask
+    expect(asked.message).toMatch(/which suburb/i)
   })
 })

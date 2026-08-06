@@ -1,6 +1,13 @@
 import { api } from './api'
 import type { SuburbPlace } from './places'
 
+/**
+ * The option that means "none of these". The workflow offers it wherever a tile row cannot
+ * cover every real answer — a fence is whatever length it is — and the client answers it with a
+ * text box instead of sending this value anywhere.
+ */
+export const OTHER_OPTION_VALUE = '__other__'
+
 export interface ChatOption {
   label: string
   // The real workflow sends non-string values for most MCQ answers (e.g. `heightMm: 1800`,
@@ -75,6 +82,9 @@ export interface FencingChatResponse {
   // mistyped suburb doesn't fail loudly — it silently matches zero businesses. Optional, so a
   // workflow export that doesn't send it yet just falls back to plain typing.
   expects?: 'suburb'
+  // What the customer said, or what an attached quote document showed, when that turn is asking
+  // for the suburb. Never an answer — the picker searches it and still makes them confirm.
+  suggestedSuburb?: string
   // Running checklist of collected project fields, echoed back on every message/question turn
   // (null once a `result`/`comparison_result` fires). Absent entirely on very old workflow
   // versions, hence optional.

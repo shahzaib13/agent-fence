@@ -8,7 +8,7 @@ import { Home } from './Home'
 // Opening a saved quote hands it back to the same screen that produced it: a finished one lands
 // on its results, an unfinished one lands in the thread where it stopped. Home already knows how
 // to render both, so this page only has to find the session and hand it over.
-export function QuoteDetail() {
+export function QuoteDetail({ view = 'result' }: { view?: 'chat' | 'result' }) {
   const { sessionId = '' } = useParams()
   const { user, isLoading: isAuthLoading } = useAuth()
   const [session, setSession] = useState<QuoteSession | null>(null)
@@ -59,5 +59,5 @@ export function QuoteDetail() {
   }
 
   // Keyed so switching between two saved quotes remounts rather than mixing their threads.
-  return <Home key={session.sessionId} initialSession={session} />
+  return <Home key={session.sessionId} initialSession={session} initialView={view} />
 }

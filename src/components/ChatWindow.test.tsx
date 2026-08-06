@@ -103,4 +103,70 @@ describe('ChatWindow', () => {
     await user.type(input, '{Enter}')
     expect(onSend).toHaveBeenCalledWith('first\nsecond')
   })
+
+  describe('an answer that is not on the row', () => {
+    const lengthQuestion: ChatMessage = {
+      id: 'ai-length',
+      role: 'ai',
+      text: 'How long is the fence?',
+      options: [
+        { label: '10m', value: 10 },
+        { label: '20m', value: 20 },
+        { label: 'Other', value: '__other__' },
+      ],
+    }
+
+    it('opens a box instead of sending "Other" anywhere', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption })
+      const user = userEvent.setup()
+
+      await user.click(await screen.findByRole('button', { name: 'Other' }))
+
+      expect(screen.getByLabelText(/length in metres/i)).toBeInTheDocument()
+      expect(onSelectOption).not.toHaveBeenCalled()
+    })
+
+    it('sends what was typed as an ordinary answer', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption })
+      const user = userEvent.setup()
+
+      await user.click(await screen.findByRole('button', { name: 'Other' }))
+      await user.type(screen.getByLabelText(/length in metres/i), '27')
+      await user.click(screen.getByRole('button', { name: /use this/i }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: '27m', value: 27 })
+    })
+
+    it('refuses a length that cannot be a fence', async () => {
+      renderWindow([lengthQuestion], false)
+      const user = userEvent.setup()
+
+      await user.click(await screen.findByRole('button', { name: 'Other' }))
+      const box = screen.getByLabelText(/length in metres/i)
+
+      await user.type(box, '0')
+      expect(screen.getByRole('button', { name: /use this/i })).toBeDisabled()
+
+      await user.clear(box)
+      await user.type(box, '5000')
+      expect(screen.getByRole('button', { name: /use this/i })).toBeDisabled()
+
+      await user.clear(box)
+      await user.type(box, '27.5')
+      expect(screen.getByRole('button', { name: /use this/i })).toBeEnabled()
+    })
+
+    it('goes back to the tiles when it was the wrong turn to take', async () => {
+      renderWindow([lengthQuestion], false)
+      const user = userEvent.setup()
+
+      await user.click(await screen.findByRole('button', { name: 'Other' }))
+      await user.click(screen.getByRole('button', { name: /back to options/i }))
+
+      expect(screen.getByRole('button', { name: '10m' })).toBeInTheDocument()
+      expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
+    })
+  })
 })

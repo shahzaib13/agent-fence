@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchSuburbPlace, isPlacesConfigured, searchSuburbs } from './places'
+import { fetchSuburbPlace, isPlacesConfigured, searchSuburbs, suburbSearchQuery } from './places'
 
 // Stands in for the Maps SDK the service loads from Google. Same object for every test, because
 // the module caches whatever it resolved the first time — as the real page does too.
@@ -214,6 +214,23 @@ describe('places', () => {
       vi.stubEnv('VITE_GOOGLE_MAPS_API_KEY', '')
       await expect(fetchSuburbPlace('place-1', 'session-1')).rejects.toThrow(/not configured/i)
       expect(getDetails).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('suburbSearchQuery', () => {
+    it('prefers the postcode, which is the one unambiguous thing in an AU address', () => {
+      expect(suburbSearchQuery('12 Smith St, Pakenham VIC 3810')).toBe('3810')
+      expect(suburbSearchQuery('Pakenham VIC 3810, Australia')).toBe('3810')
+    })
+
+    it('falls back to the tail of the address, without its street number', () => {
+      expect(suburbSearchQuery('12 Smith Street, Pakenham VIC')).toBe('Pakenham VIC')
+      expect(suburbSearchQuery('Unit 4, 8 Main Rd, Berwick')).toBe('Berwick')
+    })
+
+    it('leaves a plain suburb name alone', () => {
+      expect(suburbSearchQuery('Pakenham')).toBe('Pakenham')
+      expect(suburbSearchQuery('  Narre Warren South  ')).toBe('Narre Warren South')
     })
   })
 })

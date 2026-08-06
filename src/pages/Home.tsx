@@ -12,7 +12,7 @@ import {
   type ChecklistData,
   type ComparisonSummary,
 } from '../services/fencingChat'
-import { isPlacesConfigured, newSessionToken, searchSuburbs, type SuburbPlace } from '../services/places'
+import { isPlacesConfigured, newSessionToken, searchSuburbs, suburbSearchQuery, type SuburbPlace } from '../services/places'
 import { saveQuote, type QuoteSession } from '../services/quotes'
 import { useAuth } from '../hooks/useAuth'
 import { diffFilledField } from '../utils/checklist'
@@ -28,12 +28,24 @@ type Stage = 'hero' | 'coming-soon' | 'chat' | 'thinking'
 // Only Fence is wired to a real backend today — every other type gets the "coming soon" screen.
 const LIVE_PROJECT_TYPE = 'Fence'
 
+// A turn that is asking where the job is. The workflow says so with `expects`, but the client
+// does not depend on it getting that right: a suburb typed as free text silently matches zero
+// businesses, so the wording is checked here too.
+const ASKS_FOR_SUBURB = /suburbs?|post ?code|whereabouts/i
+
 function buildPrefill(type: string) {
   return `I need a ${type.toLowerCase()} — `
 }
 
 // A conversation being reopened from the Quotes tab, or nothing for a fresh one.
-export function Home({ initialSession }: { initialSession?: QuoteSession | null }) {
+export function Home({
+  initialSession,
+  initialView = 'result',
+}: {
+  initialSession?: QuoteSession | null
+  /** Which face of a reopened quote to show first — its result, or its conversation. */
+  initialView?: 'chat' | 'result'
+}) {
   const { user } = useAuth()
   const [stage, setStage] = useState<Stage>(initialSession ? 'chat' : 'hero')
   const [description, setDescription] = useState('')
@@ -49,6 +61,9 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
   const [checklistComplete, setChecklistComplete] = useState(false)
   // Stays put across every save, so reopening a quote doesn't keep resetting when it began.
   const startedAt = useRef(initialSession?.createdAt ?? Date.now())
+  // A finished quote has two faces and the customer picks which one they are looking at. The
+  // conversation is not a transcript: answering again from there re-runs the quote.
+  const [view, setView] = useState<'chat' | 'result'>(initialView)
   // The Google place behind the suburb the customer picked. Kept for the whole session so
   // postcode/state/coordinates ride along on every later turn, not just the one that set it.
   const [place, setPlace] = useState<SuburbPlace | null>(initialSession?.place ?? null)
@@ -105,7 +120,13 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
     try {
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles, {
         intent,
-        knownChecklist: previousChecklist,
+        // A suburb with no place behind it is not established, however confident the agent was
+        // when it wrote it down. Withholding it is what makes the agent ask again instead of
+        // building a whole brief on a name that was never on the map.
+        knownChecklist:
+          (confirmedPlace ?? place) || !previousChecklist
+            ? previousChecklist
+            : { ...previousChecklist, suburb: null },
         place: confirmedPlace ?? place,
       })
       // Locked on the first turn that declares one, never overwritten afterwards. The workflow
@@ -134,6 +155,7 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
       // instead of leaving the UI stuck on stale state.
       if (response.intent === 'compare_quote' && response.comparison) {
         setComparison(response.comparison)
+        setView('result')
         return
       }
       // A `result` with nothing in it is the workflow explaining why — no business covers their
@@ -144,23 +166,35 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
       // intents finish on one page instead of two layouts that have to be kept in step.
       if (response.type === 'result' && response.results.length > 0) {
         setComparison(workerMatchesToComparison(response.results))
+        setView('result')
         return
       }
+
+      // Any turn that asks about the suburb gets the picker — including "what's the correct
+      // suburb?" halfway through, when one has already been confirmed and is being changed. A
+      // place picked from Google is the only thing that counts as an answer here, so the client
+      // decides this rather than waiting for the workflow to remember `expects`.
+      const expectsSuburb =
+        isPlacesConfigured() && (response.expects === 'suburb' || ASKS_FOR_SUBURB.test(response.message))
+      const turnId = generateId()
 
       setMessages((previous) => [
         ...labelAnswer(previous),
         {
-          id: generateId(),
+          id: turnId,
           role: 'ai',
           text: response.message,
           options: response.options,
           checklist: response.checklist ?? previousChecklist,
           isConfirmation: response.type === 'confirmation',
-          // Without a Places key there's no picker to show, so the turn falls back to being
-          // answered in the composer exactly as it was before.
-          expects: isPlacesConfigured() ? response.expects : undefined,
+          expects: expectsSuburb ? 'suburb' : undefined,
         },
       ])
+      // A place the customer already named — in passing, or on the quote document they
+      // attached — becomes the picker's opening search, so confirming it is one tap instead of
+      // typing it out a second time. It is still only a head start: nothing counts until they
+      // pick from Google's list.
+      if (expectsSuburb && response.suggestedSuburb) void prefillSuburb(turnId, response.suggestedSuburb)
       // A non-result reply to the final "yes" (n8n asking one more thing) drops back into the
       // thread rather than leaving the thinking screen spinning on nothing.
       setStage('chat')
@@ -213,11 +247,32 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
   // whatever gets typed is looked up against Google first, and only a place the customer then
   // confirms is sent on. A typo that would have quietly matched zero businesses gets caught
   // here, without spending a workflow turn on it.
+  /** Fills the picker on an existing turn with what Google makes of a place already named. */
+  async function prefillSuburb(messageId: string, text: string) {
+    const sessionToken = newSessionToken()
+    try {
+      const suggestions = await searchSuburbs(suburbSearchQuery(text), sessionToken)
+      if (suggestions.length === 0) return
+      setMessages((previous) =>
+        previous.map((message) =>
+          message.id === messageId ? { ...message, suggestions, query: text, sessionToken } : message,
+        ),
+      )
+    } catch {
+      // The picker still works by typing — a failed head start is not worth an error message.
+    }
+  }
+
   async function resolveTypedSuburb(text: string) {
     setIsLoading(true)
     const sessionToken = newSessionToken()
     try {
-      const suggestions = await searchSuburbs(text, sessionToken)
+      // A quote document carries a whole street address, which a region search matches nothing
+      // against — so the searchable part is pulled out first, and the raw text is only tried
+      // again if that finds nothing.
+      const query = suburbSearchQuery(text)
+      let suggestions = await searchSuburbs(query, sessionToken)
+      if (suggestions.length === 0 && query !== text) suggestions = await searchSuburbs(text, sessionToken)
       setMessages((previous) => [
         ...previous,
         {
@@ -252,7 +307,11 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
   const handleSend = (text: string) => {
     setMessages((previous) => [...previous, { id: generateId(), role: 'user', text }])
     const lastAi = messages.findLast((m) => m.role === 'ai')
-    if (lastAi?.expects === 'suburb' && !lastAi.answered) {
+    // Typed into the composer instead of the picker: look it up rather than sending it on. The
+    // suburb only ever reaches the workflow as a place the customer confirmed from Google's
+    // suggestions — that is the whole point of asking for it this way.
+    const isSuburbTurn = lastAi?.expects === 'suburb' || (!!lastAi && ASKS_FOR_SUBURB.test(lastAi.text))
+    if (isPlacesConfigured() && isSuburbTurn && !lastAi?.answered) {
       void resolveTypedSuburb(text)
       return
     }
@@ -301,8 +360,16 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
 
   // Where every finished conversation lands, whichever intent it ran under (Figma: "Quote
   // Direct Comparison").
-  if (comparison) {
-    return <QuoteComparisonPage comparison={comparison} intent={intent} place={place} onBack={handleRestart} />
+  if (comparison && view === 'result') {
+    return (
+      <QuoteComparisonPage
+        comparison={comparison}
+        intent={intent}
+        place={place}
+        onBack={handleRestart}
+        onViewChat={() => setView('chat')}
+      />
+    )
   }
 
   // The thread owns the viewport: the page itself never scrolls, the message list and the
@@ -311,6 +378,22 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-[#FCFDFD]">
         <Header onNewProject={handleRestart} />
+        {/* Only once a quote exists: the way back to it, and a reminder that carrying the
+            conversation on will produce a new one. */}
+        {comparison && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#D1FAE5] bg-[#ECFDF5] px-6 py-3 sm:px-10">
+            <p className="text-sm text-[#047857]">
+              This quote is ready. Keep chatting to change it, or go back to your results.
+            </p>
+            <button
+              type="button"
+              onClick={() => setView('result')}
+              className="rounded-full bg-[#059669] px-4 py-2 text-sm font-semibold whitespace-nowrap text-white transition-transform duration-150 hover:scale-105 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#047857]"
+            >
+              View results
+            </button>
+          </div>
+        )}
         <div className="grid min-h-0 flex-1 border-t border-gray-200 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <ChatWindow
             messages={messages}

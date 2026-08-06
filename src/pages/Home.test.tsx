@@ -7,11 +7,17 @@ import { sendFencingChatMessage, type FencingChatResponse } from '../services/fe
 import { fetchSuburbPlace, searchSuburbs, type SuburbPlace } from '../services/places'
 import { Home } from './Home'
 
-vi.mock('../services/fencingChat', () => ({
+vi.mock('../services/fencingChat', async (importOriginal) => ({
+  // Only the network call is faked — the module's constants are part of the contract the chat
+  // renders against, and stubbing them by hand is how they drift.
+  ...(await importOriginal<typeof import('../services/fencingChat')>()),
   sendFencingChatMessage: vi.fn(),
 }))
 
-vi.mock('../services/places', () => ({
+vi.mock('../services/places', async (importOriginal) => ({
+  // Only what talks to Google is faked. The pure helpers are real, because stubbing them by
+  // hand is how a test ends up passing against behaviour the app doesn't have.
+  ...(await importOriginal<typeof import('../services/places')>()),
   isPlacesConfigured: () => true,
   newSessionToken: () => 'token-1',
   searchSuburbs: vi.fn(),
@@ -213,11 +219,13 @@ describe('Home', () => {
     })
     await user.click(await screen.findByRole('button', { name: 'Timber' }))
 
+    // Everything else is echoed back — but never the suburb, because no place has been
+    // confirmed yet and a suburb the agent wrote down on its own is not established.
     expect(mockedSend).toHaveBeenLastCalledWith(
       'Timber',
       expect.any(String),
       undefined,
-      expect.objectContaining({ knownChecklist: emptyChecklist }),
+      expect.objectContaining({ knownChecklist: { ...emptyChecklist, suburb: null } }),
     )
   })
 
@@ -708,5 +716,51 @@ describe('Home', () => {
     expect(mockedSend).not.toHaveBeenCalled()
     // Still answerable — the picker stays open on the failed attempt
     expect(screen.getByRole('combobox')).toBeInTheDocument()
+  })
+
+  describe('a suburb the customer already named', () => {
+    it('opens the picker on it, so confirming is one tap instead of typing it again', async () => {
+      const user = userEvent.setup()
+      mockedSend.mockResolvedValueOnce({
+        ...suburbQuestion,
+        // What the quote document said — an address, not a suburb
+        suggestedSuburb: '12 Smith St, Pakenham VIC 3810',
+      })
+
+      await startChat(user)
+
+      await waitFor(() => expect(screen.getAllByRole('option').length).toBeGreaterThan(0))
+      // The postcode is what gets searched: a whole street address matches no region
+      expect(mockedSearch).toHaveBeenCalledWith('3810', expect.any(String))
+    })
+
+    it('leaves the picker empty rather than showing a wrong guess when nothing matches', async () => {
+      const user = userEvent.setup()
+      mockedSearch.mockResolvedValue([])
+      mockedSend.mockResolvedValueOnce({ ...suburbQuestion, suggestedSuburb: 'somewhere unhelpful' })
+
+      await startChat(user)
+
+      await screen.findByRole('combobox')
+      expect(screen.queryByRole('option')).not.toBeInTheDocument()
+    })
+
+    it('does not search when the turn is not asking for a suburb', async () => {
+      const user = userEvent.setup()
+      mockedSend.mockResolvedValueOnce({
+        sessionId: 'session-1',
+        type: 'message',
+        message: 'Got it.',
+        options: [],
+        results: [],
+        avgRatePerMeter: null,
+        suggestedSuburb: 'Pakenham',
+      })
+
+      await startChat(user)
+
+      await waitFor(() => expect(screen.getByText('Got it.')).toBeInTheDocument())
+      expect(mockedSearch).not.toHaveBeenCalled()
+    })
   })
 })
