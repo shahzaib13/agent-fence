@@ -10,6 +10,8 @@ function App() {
         <Route index element={<Home />} />
         <Route path="quotes" element={<Quotes />} />
         <Route path="quotes/:sessionId" element={<QuoteDetail />} />
+        {/* Same session, opened on its conversation instead of its result. */}
+        <Route path="quotes/:sessionId/chat" element={<QuoteDetail view="chat" />} />
       </Routes>
     </BrowserRouter>
   )

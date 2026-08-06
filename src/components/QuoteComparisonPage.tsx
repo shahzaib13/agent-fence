@@ -36,6 +36,7 @@ export function QuoteComparisonPage({
   intent,
   place,
   onBack,
+  onViewChat,
 }: {
   comparison: ComparisonSummary
   // Carried through from the conversation rather than re-derived here: the saved job records
@@ -46,6 +47,8 @@ export function QuoteComparisonPage({
   // can't fire without n8n declaring `compare_quote` in the first place.
   intent?: 'new_quote' | 'compare_quote'
   onBack: () => void
+  /** Absent on a fresh quote, where the thread is one Back away anyway. */
+  onViewChat?: () => void
 }) {
   const [isInstantQuoteOpen, setIsInstantQuoteOpen] = useState(false)
 
@@ -92,6 +95,16 @@ export function QuoteComparisonPage({
         {comparison.quotes.length > 0 && (
           <div className="mb-5 flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-xs font-bold tracking-[0.6px] text-[#6B7280] uppercase">Your matched partners</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              {onViewChat && (
+                <button
+                  type="button"
+                  onClick={onViewChat}
+                  className="rounded-full border border-gray-200 px-5 py-3 text-sm font-semibold text-[#062D27] transition-colors hover:border-[#062D27]/40 hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+                >
+                  View chat
+                </button>
+              )}
             <button
               type="button"
               onClick={() => setIsInstantQuoteOpen(true)}
@@ -99,6 +112,7 @@ export function QuoteComparisonPage({
             >
               Instant Quote
             </button>
+            </div>
           </div>
         )}
 

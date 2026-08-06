@@ -4,6 +4,9 @@ import { Header } from '../components/Header'
 import { useAuth } from '../hooks/useAuth'
 import { listQuotes, loadLocalQuotes, quoteTitle, type QuoteSession } from '../services/quotes'
 
+/** What the customer would count as a message — their turns and the assistant's, not the UI's. */
+const messageCount = (session: QuoteSession) => session.messages.length
+
 const relativeDay = (timestamp: number) => {
   const days = Math.floor((Date.now() - timestamp) / 86_400_000)
   if (days <= 0) return 'Today'
@@ -72,13 +75,13 @@ export function Quotes() {
             {sessions.map((session) => {
               const isComplete = session.status === 'complete'
               return (
-                <li key={session.sessionId}>
-                  <Link
-                    to={`/quotes/${session.sessionId}`}
-                    className="flex flex-col gap-3 rounded-3xl border border-[#F3F4F6] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-all duration-150 hover:-translate-y-0.5 hover:border-[#062D27]/20 hover:shadow-[0_8px_24px_rgba(6,45,39,0.07)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27] sm:p-6"
-                  >
+                <li
+                  key={session.sessionId}
+                  className="flex flex-col gap-4 rounded-3xl border border-[#F3F4F6] bg-white p-5 shadow-[0_1px_2px_rgba(0,0,0,0.05)] transition-shadow duration-150 hover:shadow-[0_8px_24px_rgba(6,45,39,0.07)] sm:p-6"
+                >
+                  <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <span className="text-lg font-semibold text-[#062D27]">{quoteTitle(session)}</span>
+                      <h2 className="text-lg font-semibold text-[#062D27]">{quoteTitle(session)}</h2>
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase ${
                           isComplete ? 'bg-[#ECFDF5] text-[#047857]' : 'bg-[#F1F4F3] text-[#6B7280]'
@@ -89,19 +92,37 @@ export function Quotes() {
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#6B7280]">
                       <span>{relativeDay(session.updatedAt)}</span>
-                      {isComplete && session.comparison ? (
+                      <span>
+                        {messageCount(session)} message{messageCount(session) === 1 ? '' : 's'}
+                      </span>
+                      {isComplete && session.comparison?.quotes[0] && (
                         <span>
                           {session.comparison.quotes.length} business
-                          {session.comparison.quotes.length === 1 ? '' : 'es'}
-                          {session.comparison.quotes[0]
-                            ? ` from $${session.comparison.quotes[0].projectTotalMin.toLocaleString()}`
-                            : ''}
+                          {session.comparison.quotes.length === 1 ? '' : 'es'} from $
+                          {session.comparison.quotes[0].projectTotalMin.toLocaleString()}
                         </span>
-                      ) : (
-                        <span>Pick up where you left off</span>
                       )}
                     </div>
-                  </Link>
+                  </div>
+
+                  {/* Two ways in, because a finished quote is two things: the numbers, and the
+                      conversation that produced them — which can still be carried on. */}
+                  <div className="flex flex-wrap gap-3">
+                    <Link
+                      to={`/quotes/${session.sessionId}/chat`}
+                      className="rounded-full border border-gray-200 px-5 py-2.5 text-sm font-semibold text-[#062D27] transition-colors hover:border-[#062D27]/40 hover:bg-[#F1F4F3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+                    >
+                      {isComplete ? 'View chat' : 'Continue chat'}
+                    </Link>
+                    {isComplete && (
+                      <Link
+                        to={`/quotes/${session.sessionId}`}
+                        className="rounded-full bg-[#062D27] px-5 py-2.5 text-sm font-semibold text-white transition-transform duration-150 hover:scale-105 hover:bg-[#0a3f37] active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+                      >
+                        View results
+                      </Link>
+                    )}
+                  </div>
                 </li>
               )
             })}
