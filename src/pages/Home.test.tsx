@@ -1,14 +1,57 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as renderBare, screen, waitFor } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { MemoryRouter } from 'react-router'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { sendFencingChatMessage, type FencingChatResponse } from '../services/fencingChat'
+import { fetchSuburbPlace, searchSuburbs, type SuburbPlace } from '../services/places'
 import { Home } from './Home'
 
 vi.mock('../services/fencingChat', () => ({
   sendFencingChatMessage: vi.fn(),
 }))
 
+vi.mock('../services/places', () => ({
+  isPlacesConfigured: () => true,
+  newSessionToken: () => 'token-1',
+  searchSuburbs: vi.fn(),
+  fetchSuburbPlace: vi.fn(),
+}))
+
 const mockedSend = vi.mocked(sendFencingChatMessage)
+const mockedSearch = vi.mocked(searchSuburbs)
+const mockedFetchPlace = vi.mocked(fetchSuburbPlace)
+
+const suburbSuggestions = [
+  { placeId: 'place-1', primaryText: 'Pakenham', secondaryText: 'VIC, Australia' },
+  { placeId: 'place-2', primaryText: 'Pakenham Upper', secondaryText: 'VIC, Australia' },
+]
+
+const pakenham: SuburbPlace = {
+  suburb: 'Pakenham',
+  state: 'VIC',
+  stateFullName: 'Victoria',
+  postcode: '3810',
+  country: 'AU',
+  countryName: 'Australia',
+  displayLabel: 'Pakenham, VIC 3810',
+  formattedAddress: 'Pakenham VIC 3810',
+  latitude: -38.0776708,
+  longitude: 145.4818724,
+  placeId: 'place-1',
+  placeTypes: ['locality', 'political'],
+  name: 'Pakenham',
+}
+
+const suburbQuestion: FencingChatResponse = {
+  sessionId: 'session-1',
+  type: 'question',
+  message: 'Which suburb is the fence going in?',
+  options: [],
+  results: [],
+  avgRatePerMeter: null,
+  expects: 'suburb',
+}
 
 const emptyChecklist = {
   suburb: 'Berwick',
@@ -25,9 +68,14 @@ async function startChat(user: ReturnType<typeof userEvent.setup>, description =
   await user.click(screen.getByRole('button', { name: /start analysis/i }))
 }
 
+// Header links need a router context; these pages are always inside one in the app.
+const render = (ui: ReactElement) => renderBare(ui, { wrapper: MemoryRouter })
+
 describe('Home', () => {
   beforeEach(() => {
     mockedSend.mockReset()
+    mockedSearch.mockReset().mockResolvedValue(suburbSuggestions)
+    mockedFetchPlace.mockReset().mockResolvedValue(pakenham)
   })
 
   it('renders the hero and no project type is selected by default', () => {
@@ -52,7 +100,7 @@ describe('Home', () => {
 
     expect(screen.getByText('Colorbond fence, Berwick, 20m')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/ready for a few questions/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null })
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
     // the composer is always there — the user can type at any point, MCQ on screen or not
     expect(screen.getByLabelText(/your reply/i)).toBeInTheDocument()
   })
@@ -400,7 +448,7 @@ describe('Home', () => {
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
     expect(screen.queryByText(/something went wrong on my end/i)).not.toBeInTheDocument()
-    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null })
+    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
   })
 
   it('shows the live checklist in the sidebar as the workflow fills it in', async () => {
@@ -578,7 +626,7 @@ describe('Home', () => {
     await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m{Enter}')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null })
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
   })
 
   it('sends any free-typed description straight to n8n, even if it never mentions fencing', async () => {
@@ -595,6 +643,70 @@ describe('Home', () => {
     await startChat(user, 'I need a medical report')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], { intent: undefined, knownChecklist: null })
+    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
+  })
+
+  it('answers a suburb turn from the picker and carries the whole place to the workflow', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce(suburbQuestion)
+    await startChat(user)
+    await screen.findByText(/which suburb is the fence going in/i)
+
+    await user.type(screen.getByRole('combobox'), 'pakan')
+    await user.click(await screen.findByRole('option', { name: /^pakenham vic, australia/i }))
+
+    // The label is what the agent reads; the record behind it rides alongside so postcode,
+    // state and coordinates aren't thrown away.
+    await waitFor(() =>
+      expect(mockedSend).toHaveBeenLastCalledWith(
+        'Pakenham, VIC 3810',
+        expect.any(String),
+        undefined,
+        expect.objectContaining({ place: pakenham }),
+      ),
+    )
+    expect(await screen.findByText('Suburb: Pakenham, VIC 3810')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('looks a typed suburb up against Google before spending a workflow turn on it', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce(suburbQuestion)
+    await startChat(user)
+    await screen.findByText(/which suburb is the fence going in/i)
+    mockedSend.mockClear()
+
+    await user.type(screen.getByLabelText(/your reply/i), 'pakenham{Enter}')
+
+    expect(await screen.findByText(/which one is yours/i)).toBeInTheDocument()
+    expect(mockedSearch).toHaveBeenCalledWith('pakenham', 'token-1')
+    // Nothing reached n8n — the typed text was a lookup, not an answer
+    expect(mockedSend).not.toHaveBeenCalled()
+
+    await user.click(await screen.findByRole('option', { name: /^pakenham vic, australia/i }))
+    await waitFor(() =>
+      expect(mockedSend).toHaveBeenCalledWith(
+        'Pakenham, VIC 3810',
+        expect.any(String),
+        undefined,
+        expect.objectContaining({ place: pakenham }),
+      ),
+    )
+  })
+
+  it('tells the customer when a typed suburb matches nothing in Australia', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce(suburbQuestion)
+    mockedSearch.mockResolvedValue([])
+    await startChat(user)
+    await screen.findByText(/which suburb is the fence going in/i)
+    mockedSend.mockClear()
+
+    await user.type(screen.getByLabelText(/your reply/i), 'pakenhma{Enter}')
+
+    expect(await screen.findByText(/couldn't find "pakenhma" as an australian suburb/i)).toBeInTheDocument()
+    expect(mockedSend).not.toHaveBeenCalled()
+    // Still answerable — the picker stays open on the failed attempt
+    expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
 })

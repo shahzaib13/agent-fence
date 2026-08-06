@@ -1,15 +1,30 @@
+import { useState } from 'react'
+import { Link } from 'react-router'
+import { signOutUser, useAuth } from '../hooks/useAuth'
+import { SignInDialog } from './SignInDialog'
+
 export function Header({ dimmed, onNewProject }: { dimmed?: boolean; onNewProject?: () => void }) {
+  const { user, isLoading } = useAuth()
+  const [isSigningIn, setIsSigningIn] = useState(false)
+
   return (
     <header
       className={`flex h-22 w-full items-center justify-between gap-4 px-6 transition-opacity ${dimmed ? 'pointer-events-none opacity-40' : ''}`}
     >
       <div className="flex min-w-0 items-center gap-10">
-        <span className="flex shrink-0 items-center gap-2">
+        <Link to="/" className="flex shrink-0 items-center gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#062D27]">
           <span className="h-2.5 w-2.5 rounded-full bg-[#062D27]" />
           <span className="text-xl font-bold tracking-tight whitespace-nowrap text-[#062D27]">Aura</span>
-        </span>
+        </Link>
         <nav className="hidden items-center gap-8 md:flex">
-          {['Quote', 'Projects', 'Standards', 'Pricing'].map((link) => (
+          {/* Quotes is a real destination now; the rest are still placeholders. */}
+          <Link
+            to="/quotes"
+            className="rounded text-sm font-medium whitespace-nowrap text-gray-500 transition-colors hover:text-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#062D27]"
+          >
+            Quotes
+          </Link>
+          {['Projects', 'Standards', 'Pricing'].map((link) => (
             <a
               key={link}
               href="#"
@@ -20,10 +35,29 @@ export function Header({ dimmed, onNewProject }: { dimmed?: boolean; onNewProjec
           ))}
         </nav>
       </div>
-      <div className="flex shrink-0 items-center gap-6">
-        <a href="#" className="text-sm font-medium whitespace-nowrap text-gray-500 hover:text-gray-700">
-          Sign in
-        </a>
+      <div className="flex shrink-0 items-center gap-4 sm:gap-6">
+        {/* Nothing is rendered while Firebase is still restoring the session — showing "Sign in"
+            for a moment to somebody who is already signed in reads as having been logged out. */}
+        {isLoading ? null : user ? (
+          <>
+            <span className="hidden text-sm font-medium text-gray-500 sm:inline">{user.phoneE164}</span>
+            <button
+              type="button"
+              onClick={() => void signOutUser()}
+              className="rounded text-sm font-medium whitespace-nowrap text-gray-500 transition-colors hover:text-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#062D27]"
+            >
+              Sign out
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setIsSigningIn(true)}
+            className="rounded text-sm font-medium whitespace-nowrap text-gray-500 transition-colors hover:text-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#062D27]"
+          >
+            Sign in
+          </button>
+        )}
         <button
           type="button"
           onClick={onNewProject}
@@ -32,6 +66,8 @@ export function Header({ dimmed, onNewProject }: { dimmed?: boolean; onNewProjec
           New project
         </button>
       </div>
+
+      {isSigningIn && <SignInDialog onClose={() => setIsSigningIn(false)} />}
     </header>
   )
 }

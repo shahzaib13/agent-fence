@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChatWindow, type ChatMessage } from '../components/ChatWindow'
 import { ChecklistPanel } from '../components/ChecklistPanel'
 import { ComingSoonScreen } from '../components/ComingSoonScreen'
@@ -12,6 +12,9 @@ import {
   type ChecklistData,
   type ComparisonSummary,
 } from '../services/fencingChat'
+import { isPlacesConfigured, newSessionToken, searchSuburbs, type SuburbPlace } from '../services/places'
+import { saveQuote, type QuoteSession } from '../services/quotes'
+import { useAuth } from '../hooks/useAuth'
 import { diffFilledField } from '../utils/checklist'
 import { workerMatchesToComparison } from '../utils/comparison'
 import { generateId } from '../utils/id'
@@ -29,23 +32,68 @@ function buildPrefill(type: string) {
   return `I need a ${type.toLowerCase()} — `
 }
 
-export function Home() {
-  const [stage, setStage] = useState<Stage>('hero')
+// A conversation being reopened from the Quotes tab, or nothing for a fresh one.
+export function Home({ initialSession }: { initialSession?: QuoteSession | null }) {
+  const { user } = useAuth()
+  const [stage, setStage] = useState<Stage>(initialSession ? 'chat' : 'hero')
   const [description, setDescription] = useState('')
   const [selectedType, setSelectedType] = useState<string | null>(null)
-  const [sessionId, setSessionId] = useState(() => generateId())
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [intent, setIntent] = useState<'new_quote' | 'compare_quote' | undefined>(undefined)
+  const [sessionId, setSessionId] = useState(() => initialSession?.sessionId ?? generateId())
+  const [messages, setMessages] = useState<ChatMessage[]>(() => initialSession?.messages ?? [])
+  const [intent, setIntent] = useState<'new_quote' | 'compare_quote' | undefined>(initialSession?.intent)
   const [lastFailedText, setLastFailedText] = useState<string | null>(null)
   const [lastFailedFiles, setLastFailedFiles] = useState<File[] | null>(null)
-  const [comparison, setComparison] = useState<ComparisonSummary | null>(null)
+  const [comparison, setComparison] = useState<ComparisonSummary | null>(initialSession?.comparison ?? null)
   const [isLoading, setIsLoading] = useState(false)
-  const [checklist, setChecklist] = useState<ChecklistData | null>(null)
+  const [checklist, setChecklist] = useState<ChecklistData | null>(initialSession?.checklist ?? null)
   const [checklistComplete, setChecklistComplete] = useState(false)
+  // Stays put across every save, so reopening a quote doesn't keep resetting when it began.
+  const startedAt = useRef(initialSession?.createdAt ?? Date.now())
+  // The Google place behind the suburb the customer picked. Kept for the whole session so
+  // postcode/state/coordinates ride along on every later turn, not just the one that set it.
+  const [place, setPlace] = useState<SuburbPlace | null>(initialSession?.place ?? null)
   // The message whose option row just collapsed, waiting to be told which checklist field it filled.
   const pendingAnswerId = useRef<string | null>(null)
 
-  async function sendMessage(apiText: string, quoteFiles?: File[] | null, isFinalConfirm = false) {
+  // The whole conversation is one record, rewritten whenever it changes — a dozen turns is a
+  // small document, and a write per message would cost a dozen times as much to store the same
+  // thing. Nothing is saved until the customer has actually said something.
+  useEffect(() => {
+    if (messages.length === 0) return
+    saveQuote(
+      {
+        sessionId,
+        status: comparison ? 'complete' : 'in_progress',
+        createdAt: startedAt.current,
+        updatedAt: Date.now(),
+        messages: messages.map(({ id, role, text, options, answered, answeredField, isConfirmation, checklist: turnChecklist, expects }) => ({
+          id,
+          role,
+          text,
+          options,
+          answered,
+          answeredField,
+          isConfirmation,
+          checklist: turnChecklist,
+          expects,
+        })),
+        checklist,
+        place,
+        comparison,
+        intent,
+      },
+      user,
+    )
+  }, [messages, checklist, place, comparison, intent, sessionId, user])
+
+  async function sendMessage(
+    apiText: string,
+    quoteFiles?: File[] | null,
+    isFinalConfirm = false,
+    // Passed explicitly by the turn that just confirmed a suburb — `place` state hasn't
+    // re-rendered yet at that point.
+    confirmedPlace?: SuburbPlace | null,
+  ) {
     setIsLoading(true)
     // Captured before the request so the response can be diffed against it — that diff is what
     // labels the answer chip the user just collapsed.
@@ -58,6 +106,7 @@ export function Home() {
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles, {
         intent,
         knownChecklist: previousChecklist,
+        place: confirmedPlace ?? place,
       })
       // Locked on the first turn that declares one, never overwritten afterwards. The workflow
       // re-runs its new_quote/compare_quote classifier on every single turn, and a flip
@@ -107,6 +156,9 @@ export function Home() {
           options: response.options,
           checklist: response.checklist ?? previousChecklist,
           isConfirmation: response.type === 'confirmation',
+          // Without a Places key there's no picker to show, so the turn falls back to being
+          // answered in the composer exactly as it was before.
+          expects: isPlacesConfigured() ? response.expects : undefined,
         },
       ])
       // A non-result reply to the final "yes" (n8n asking one more thing) drops back into the
@@ -141,8 +193,69 @@ export function Home() {
     void sendMessage(String(option.value), undefined, !!target?.isConfirmation && String(option.value) === 'yes')
   }
 
+  // A suburb the customer picked from Google, rather than one they typed. `answeredField` is
+  // set outright instead of being diffed out of the next checklist — this turn is the suburb
+  // by definition, so the chip never has to wait a round trip to know what it filled in.
+  const handleSelectPlace = (messageId: string, selected: SuburbPlace) => {
+    if (isLoading) return
+    setPlace(selected)
+    setMessages((previous) =>
+      previous.map((m) =>
+        m.id === messageId
+          ? { ...m, answered: { label: selected.displayLabel, value: selected.displayLabel }, answeredField: 'suburb' }
+          : m,
+      ),
+    )
+    void sendMessage(selected.displayLabel, undefined, false, selected)
+  }
+
+  // While a suburb is outstanding the composer stops being a straight line to the workflow:
+  // whatever gets typed is looked up against Google first, and only a place the customer then
+  // confirms is sent on. A typo that would have quietly matched zero businesses gets caught
+  // here, without spending a workflow turn on it.
+  async function resolveTypedSuburb(text: string) {
+    setIsLoading(true)
+    const sessionToken = newSessionToken()
+    try {
+      const suggestions = await searchSuburbs(text, sessionToken)
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: generateId(),
+          role: 'ai',
+          text: suggestions.length
+            ? "Here's what I found in Australia — which one is yours?"
+            : `I couldn't find "${text}" as an Australian suburb. Try the suburb name on its own, or its postcode.`,
+          expects: 'suburb',
+          suggestions,
+          query: text,
+          sessionToken,
+        },
+      ])
+    } catch {
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: generateId(),
+          role: 'ai',
+          text: "Suburb search isn't responding right now. Type your suburb again in a moment.",
+          expects: 'suburb',
+          query: text,
+          sessionToken,
+        },
+      ])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleSend = (text: string) => {
     setMessages((previous) => [...previous, { id: generateId(), role: 'user', text }])
+    const lastAi = messages.findLast((m) => m.role === 'ai')
+    if (lastAi?.expects === 'suburb' && !lastAi.answered) {
+      void resolveTypedSuburb(text)
+      return
+    }
     void sendMessage(text)
   }
 
@@ -180,14 +293,16 @@ export function Home() {
     setSelectedType(null)
     setChecklist(null)
     setChecklistComplete(false)
+    setPlace(null)
     pendingAnswerId.current = null
+    startedAt.current = Date.now()
     setStage('hero')
   }
 
   // Where every finished conversation lands, whichever intent it ran under (Figma: "Quote
   // Direct Comparison").
   if (comparison) {
-    return <QuoteComparisonPage comparison={comparison} intent={intent} onBack={handleRestart} />
+    return <QuoteComparisonPage comparison={comparison} intent={intent} place={place} onBack={handleRestart} />
   }
 
   // The thread owns the viewport: the page itself never scrolls, the message list and the
@@ -202,6 +317,7 @@ export function Home() {
             isLoading={isLoading}
             onSend={handleSend}
             onSelectOption={handleSelectOption}
+            onSelectPlace={handleSelectPlace}
             onRetry={handleRetry}
           />
           <ChecklistPanel checklist={checklist} />

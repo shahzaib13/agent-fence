@@ -220,7 +220,8 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000,
-      "onError": "continueErrorOutput"
+      "onError": "continueErrorOutput",
+      "disabled": true
     },
     {
       "parameters": {
@@ -235,7 +236,8 @@
       "position": [
         2576,
         9744
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -250,11 +252,12 @@
       "position": [
         2688,
         9888
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
-        "jsCode": "const sessionId = $('Normalize Input1').first().json.sessionId;\nconst originalMessage = $('Normalize Input1').first().json.message;\nconst lockedIntent = $('Normalize Input1').first().json.lockedIntent;\nconst extractedText = $('Normalize Extracted Text').first().json.extractedText || '';\n\n// What the client already has on screen for this session. The agents hold no state beyond a\n// rolling chat-memory window, so a value that scrolls out of it (or that the model just fails\n// to restate) is simply gone — and gets asked for a second time. This is the record of it.\nlet known = {};\ntry {\n  known = JSON.parse($('Normalize Input1').first().json.knownChecklist || '{}') || {};\n} catch (error) {\n  known = {};\n}\n\nconst parsed = $input.first().json.output || {};\n\n// INTENT LOCK (do not remove): the classifier used to re-decide new_quote vs\n// compare_quote from scratch on EVERY turn. Mid-conversation flips are what made\n// the compare agent (4-item checklist) jump to its confirmation step after three\n// answers, and then handed control back to the new-quote agent (6-item checklist)\n// which still had heightMm/removeOldFence/siteAccess null and re-asked them right\n// after the user had just confirmed. Whichever flow the first turn picked is the\n// flow for the whole session; the client echoes it back on every later request.\nconst claimedIntent = parsed.intent === 'compare_quote' ? 'compare_quote' : 'new_quote';\nconst intent = lockedIntent === 'new_quote' || lockedIntent === 'compare_quote' ? lockedIntent : claimedIntent;\n\nconst COMPARE_FIELDS = ['suburb', 'fenceType', 'lengthMeters'];\n\n// Never let a turn drop a field back to null that the conversation had already established.\nconst merged = { ...(parsed.checklist || {}) };\nfor (const field of COMPARE_FIELDS) {\n  if ((merged[field] === null || merged[field] === undefined) && known[field] !== null && known[field] !== undefined) {\n    merged[field] = known[field];\n  }\n}\nconst checklist = Object.keys(merged).length > 0 ? merged : null;\nconst missing = checklist\n  ? COMPARE_FIELDS.filter((f) => checklist[f] === null || checklist[f] === undefined)\n  : COMPARE_FIELDS;\n\n// The model asks for the ranking by setting this flag, so it can't be trusted on its\n// own — a half-filled brief would rank against undefined suburb/length.\nconst checklistComplete = intent === 'compare_quote' && missing.length === 0 && !!parsed.checklistComplete;\n\n// A blank message is a legitimate new_quote hand-off (this agent stays silent and\n// Fencing AI Agent1 does the talking), but on the compare branch it goes straight to\n// the user as an empty chat bubble.\nlet message = typeof parsed.message === 'string' ? parsed.message.trim() : '';\nif (intent === 'compare_quote' && !message) {\n  message = \"Sorry — I lost my train of thought there for a second. Could you say that again?\";\n}\n\nreturn [{\n  json: {\n    sessionId,\n    originalMessage,\n    extractedText,\n    intent,\n    type: ['question', 'confirmation'].includes(parsed.type) ? parsed.type : 'message',\n    message,\n    options: Array.isArray(parsed.options) ? parsed.options : [],\n    checklistComplete,\n    checklist,\n    knownChecklist: $('Normalize Input1').first().json.knownChecklist || '',\n    results: [],\n    avgRatePerMeter: null,\n  },\n}];"
+        "jsCode": "const sessionId = $('Normalize Input1').first().json.sessionId;\nconst originalMessage = $('Normalize Input1').first().json.message;\nconst lockedIntent = $('Normalize Input1').first().json.lockedIntent;\nconst extractedText = $('Normalize Extracted Text').first().json.extractedText || '';\n\n// What the client already has on screen for this session. The agents hold no state beyond a\n// rolling chat-memory window, so a value that scrolls out of it (or that the model just fails\n// to restate) is simply gone — and gets asked for a second time. This is the record of it.\nlet known = {};\ntry {\n  known = JSON.parse($('Normalize Input1').first().json.knownChecklist || '{}') || {};\n} catch (error) {\n  known = {};\n}\n\nconst parsed = $input.first().json.output || {};\n\n// INTENT LOCK (do not remove): the classifier used to re-decide new_quote vs\n// compare_quote from scratch on EVERY turn. Mid-conversation flips are what made\n// the compare agent (4-item checklist) jump to its confirmation step after three\n// answers, and then handed control back to the new-quote agent (6-item checklist)\n// which still had heightMm/removeOldFence/siteAccess null and re-asked them right\n// after the user had just confirmed. Whichever flow the first turn picked is the\n// flow for the whole session; the client echoes it back on every later request.\nconst claimedIntent = parsed.intent === 'compare_quote' ? 'compare_quote' : 'new_quote';\nconst intent = lockedIntent === 'new_quote' || lockedIntent === 'compare_quote' ? lockedIntent : claimedIntent;\n\nconst COMPARE_FIELDS = ['suburb', 'fenceType', 'lengthMeters'];\n\n// Never let a turn drop a field back to null that the conversation had already established.\nconst merged = { ...(parsed.checklist || {}) };\nfor (const field of COMPARE_FIELDS) {\n  if ((merged[field] === null || merged[field] === undefined) && known[field] !== null && known[field] !== undefined) {\n    merged[field] = known[field];\n  }\n}\nconst checklist = Object.keys(merged).length > 0 ? merged : null;\nconst missing = checklist\n  ? COMPARE_FIELDS.filter((f) => checklist[f] === null || checklist[f] === undefined)\n  : COMPARE_FIELDS;\n\n// The model asks for the ranking by setting this flag, so it can't be trusted on its\n// own — a half-filled brief would rank against undefined suburb/length.\nconst checklistComplete = intent === 'compare_quote' && missing.length === 0 && !!parsed.checklistComplete;\n\n// A blank message is a legitimate new_quote hand-off (this agent stays silent and\n// Fencing AI Agent1 does the talking), but on the compare branch it goes straight to\n// the user as an empty chat bubble.\nlet message = typeof parsed.message === 'string' ? parsed.message.trim() : '';\nif (intent === 'compare_quote' && !message) {\n  message = \"Sorry — I lost my train of thought there for a second. Could you say that again?\";\n}\n\n// Same suburb-picker signal as the new-quote branch — see Format New-Quote Result1. Scoped to\n// the compare flow because on a new_quote turn this node's output never reaches the client.\nconst options = Array.isArray(parsed.options) ? parsed.options : [];\n// Every other check here is also true on the opening \"can I ask you a few questions?\"\n// greeting — the suburb is still missing and a greeting carries no options either — so the\n// message itself has to say what it is asking for. Deterministic on purpose: the alternative\n// is trusting the model to label its own turn, and it is the model getting this wrong that\n// put a suburb picker on the greeting in the first place.\nconst asksForSuburb = /\\bsuburbs?\\b|\\bpost ?code\\b/i.test(message);\nconst expectsSuburb = intent === 'compare_quote' && missing[0] === 'suburb' && options.length === 0 && asksForSuburb;\n\nreturn [{\n  json: {\n    sessionId,\n    originalMessage,\n    extractedText,\n    intent,\n    type: ['question', 'confirmation'].includes(parsed.type) ? parsed.type : 'message',\n    message,\n    options,\n    ...(expectsSuburb ? { expects: 'suburb' } : {}),\n    checklistComplete,\n    checklist,\n    knownChecklist: $('Normalize Input1').first().json.knownChecklist || '',\n    results: [],\n    avgRatePerMeter: null,\n  },\n}];"
       },
       "id": "b2189280-06d1-4f92-90f1-d4b509d31b44",
       "name": "Format Comparison Result",
@@ -263,7 +266,8 @@
       "position": [
         3040,
         9520
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -296,7 +300,8 @@
       "position": [
         3264,
         9520
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -330,7 +335,8 @@
       "position": [
         4064,
         9392
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -363,7 +369,8 @@
       "position": [
         4512,
         9312
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -376,7 +383,8 @@
       "position": [
         4864,
         9376
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -403,6 +411,12 @@
               "name": "knownChecklist",
               "type": "string",
               "value": "={{ $json.body ? ($json.body.knownChecklist || \"\") : \"\" }}"
+            },
+            {
+              "id": "assign-place",
+              "name": "place",
+              "type": "string",
+              "value": "={{ $json.body ? ($json.body.place || \"\") : \"\" }}"
             }
           ]
         },
@@ -421,10 +435,10 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "={{ $json.originalMessage + ($json.extractedText ? '\\n\\n--- Attached file/image content ---\\n' + $json.extractedText : '') + ($json.knownChecklist ? '\\n\\n--- Already established for this job, do NOT ask about these again ---\\n' + $json.knownChecklist : '') }}",
+        "text": "={{ $('Normalize Input1').first().json.message + ($('Normalize Extracted Text').first().json.extractedText ? '\\n\\n--- Attached file/image content ---\\n' + $('Normalize Extracted Text').first().json.extractedText : '') + ($('Normalize Input1').first().json.knownChecklist ? '\\n\\n--- Already established for this job, do NOT ask about these again ---\\n' + $('Normalize Input1').first().json.knownChecklist : '') }}",
         "hasOutputParser": true,
         "options": {
-          "systemMessage": "You're a friendly, easygoing assistant helping people in Australia get a fencing quote by connecting them with real local fencing businesses. Talk like a helpful person, not a form or a robot — warm, natural, a little casual. \n\nCONCISENESS RULE (CRITICAL): \nKeep every message VERY SHORT. Use a maximum of 1 to 2 short sentences per reply. Be punchy and get straight to the point without rambling. Use quick acknowledgements ('Got it', 'Nice one', 'No worries'). Never sound scripted or write long paragraphs.\n\nSCOPE — FENCING ONLY: This assistant exclusively handles fencing quotes (Timber, Colorbond, Aluminium, Pool Fencing, Security/Chainmesh, Rural). If a user asks for non-fencing jobs (deck, pergola, bathroom, etc.), warmly but briefly explain you only handle fencing quotes and ask if they'd like one instead.\n\nYOUR JOB: chat naturally to fill in a 6-item checklist about the user's FENCING job. You never search for businesses or quote prices yourself.\n\nCHECKLIST TO COMPLETE (in any order):\n1. suburb — Australian suburb (Free text)\n2. fenceType — Timber, Colorbond, Aluminium, Pool Fencing, Security/Chainmesh, or Rural\n3. lengthMeters — length in metres. A NUMBER when the customer gives an exact one (25), or the RANGE STRING they picked (\"10-20\", \"20-40\", \"1-10\", \"40+\") when they chose one of the buckets.\n4. heightMm — usually 1500 or 1800 (Number)\n5. removeOldFence — true or false (Boolean)\n6. siteAccess — 'easy' (flat, clear) or 'difficult' (sloped, uneven, tight access)\n\nALREADY ESTABLISHED BLOCK (READ THIS FIRST, EVERY TURN):\nThe message you receive may end with a section headed '--- Already established for this job, do NOT ask about these again ---' followed by JSON. Those values are settled fact for this job. Copy every one of them into your \"checklist\" verbatim, and NEVER ask a question about a field that appears there — not even to double-check. It exists precisely because you cannot rely on remembering things you were told several turns ago. If the customer's newest message contradicts one of those values, the newest message wins and you update it; otherwise treat the block as read-only.\n\nCRITICAL STATE RULE: \nYou MUST carry forward any previously filled checklist values in every response. NEVER reset a known value back to null. Review the chat history carefully to see what has already been answered. Only ask about fields that are currently `null`.\n\nATTACHED FILE/IMAGE CONTEXT: the message you receive may include a section starting with '--- Attached file/image content ---'. If it gives values for any checklist field, treat those as already known. Ignore any $ price mentioned in the attachment.\n\nTHE OPENER — FIRST TURN ONLY (CRITICAL):\nIf there is no previous assistant message in the conversation history, this is the first turn. Do NOT ask a checklist question yet. Say that you don't have enough to price the job, and ask if they'll answer a few questions — that is the WHOLE message.\nKeep it to ONE short sentence plus the question. Do NOT list what's missing, do NOT explain what you're going to ask about, do NOT repeat their description back in detail. Two lines of text is already too long here.\nSet \"type\": \"message\", \"options\": [], and fill \"checklist\" with whatever their description already told you (everything else stays null). From the next turn on, follow the normal rules below.\nExample: {\"type\": \"message\", \"message\": \"Got it — a Colorbond fence in Berwick. That's not quite enough for me to price it accurately though. Happy to answer a few quick questions?\", \"options\": [], \"checklistComplete\": false, \"checklist\": {\"suburb\": \"Berwick\", \"fenceType\": \"Colorbond\", \"lengthMeters\": null, \"heightMm\": null, \"removeOldFence\": null, \"siteAccess\": null}}\n\nRANGES STAY RANGES (CRITICAL):\nWhen the customer picks one of the lengthMeters buckets, store that bucket's value string EXACTLY as given (\"20-40\"), never a single number from inside it. Picking \"20-40m\" and having their brief come back saying \"30m\" is wrong — they never said 30, and they will be quoted for a job they didn't describe. Only ever store a plain number when the customer gave you an exact one themselves (\"it's 25 metres\" -> 25).\n\nUNITS — CONVERT, NEVER REJECT (CRITICAL):\nThe checklist stores heightMm in MILLIMETRES and lengthMeters in METRES. The customer will not think in those units and should never be asked to. Convert whatever they give you:\n- Height: \"1.8m\" / \"1.8 metres\" / \"1.8\" -> 1800. \"180cm\" -> 1800. \"6 foot\" / \"6ft\" -> 1800. \"1800\" -> 1800 (already mm).\n- Length: \"20000mm\" -> 20. \"2000cm\" -> 20. \"65 feet\" / \"65ft\" -> 20. \"20\" -> 20 (already metres). A range keeps both ends converted (\"60-90 feet\" -> \"18-27\").\n- No unit given at all? Assume the one that makes sense for a fence — a height under 10 is metres, 10 to 300 is centimetres (nobody builds a 150mm fence, but a 150cm one is standard), over 300 is already millimetres; a length under about 500 is already metres.\n- Keep the converted number even if it isn't one of the options you offered (1650mm is a real answer, don't round it to 1800).\n- Only ask again if it genuinely cannot be converted to a number (\"about a panel's worth\").\n\nNEVER PROMISE A NUMBER OF QUESTIONS. Do not say \"7 quick questions\", \"3 more to go\", or anything that counts them. You cannot know how many are left, and it makes you wrong a moment later.\n\nACKNOWLEDGE, THEN ASK: every question after the opener starts with a 2-4 word acknowledgement of what they just said (\"Colorbond it is.\", \"Nice, 20 metres.\"), then the question. Never fire the next question cold.\n\nIF THEY TYPE INSTEAD OF PICKING (CRITICAL): the user can always type a reply instead of clicking one of your options. Map what they typed onto the closest valid value for the field you asked about — \"about 35 metres\" -> lengthMeters 35, \"the tall one\" -> heightMm 1800, \"it's on a slope\" -> siteAccess \"difficult\", \"nah it's already gone\" -> removeOldFence false. If it genuinely doesn't map to that field, say so in one line and ask the same question again with the same options. Never silently drop what they typed, and never treat an unrelated question from them as an answer to your question — answer them briefly, then re-ask.\n\nCOUNT BEFORE YOU CONFIRM (CRITICAL): \"type\": \"confirmation\" is only ever valid when ALL SIX checklist fields have a real value. Count the nulls first. If even one is null, you ask that field instead — no recap, no \"all correct?\", no matter how much of the brief you already have.\n\nONCE ALL 6 ARE KNOWN — CONFIRMATION STEP (CRITICAL):\nDo NOT set checklistComplete=true yet. First, recap ALL 6 values in one short message (e.g. \"Got it — Pakenham, Pool Fencing, 15m, removing the old fence, easy access. All correct?\"). Set \"type\": \"confirmation\", keep \"checklistComplete\": false, and set \"options\" to EXACTLY:\n[{\"label\": \"Yes, that's all correct\", \"value\": \"yes\"}, {\"label\": \"No, something's wrong\", \"value\": \"no\"}]\n\nHANDLING THE CONFIRMATION REPLY:\n- If the user replies \"yes\" (or clearly confirms): NOW set \"checklistComplete\": true, write a short handoff message, \"type\": \"message\", \"options\": []. This is the ONLY time you may set checklistComplete=true.\n- If the user replies \"no\" (or says something is wrong): ask \"No worries — what should I fix?\", \"type\": \"message\", \"options\": [], keep checklistComplete false.\n- Then read what they say next:\n  * They give a field AND a new value (e.g. \"it's Colorbond, not Pool Fencing\") -> update that field in the checklist, then go back to the confirmation step above (recap everything again, ask \"all correct?\" again).\n  * They only name a field with no new value (e.g. \"the fence type is wrong\") -> set that field back to null in the checklist and ask about it using the normal MCQ rules above, then once answered, go back to the confirmation step again.\n- Repeat the confirmation step every time all 6 fields become known again, until the user actually replies \"yes\".\n\nCRITICAL OUTPUT FORMAT:\nYou must reply with ONLY a raw JSON object. NO plain text, NO conversational filler outside the JSON, NO markdown backticks (```json). Your ENTIRE output must be parsed by JSON.parse().\n\nHOW TO ASK QUESTIONS (THE MCQ RULE) - STRICT MAPPING:\n- Vague opener -> quick warm hello, ask ONE natural first question.\n- 'suburb' is the ONLY field that stays free text. If asking for suburb, you MUST set \"options\": [].\n- For ALL other fields, you MUST set \"type\": \"question\" and you MUST use EXACTLY the following arrays for the \"options\" field. DO NOT invent your own options or leave the array empty.\n\n* IF asking for fenceType, use EXACTLY:\n  [{\"label\": \"Timber\", \"value\": \"Timber\"}, {\"label\": \"Colorbond\", \"value\": \"Colorbond\"}, {\"label\": \"Aluminium\", \"value\": \"Aluminium\"}, {\"label\": \"Pool Fencing\", \"value\": \"Pool Fencing\"}, {\"label\": \"Security/Chainmesh\", \"value\": \"Security/Chainmesh\"}, {\"label\": \"Rural\", \"value\": \"Rural\"}]\n\n* IF asking for lengthMeters, use EXACTLY:\n  [{\"label\": \"Under 10m\", \"value\": \"1-10\"}, {\"label\": \"10-20m\", \"value\": \"10-20\"}, {\"label\": \"20-40m\", \"value\": \"20-40\"}, {\"label\": \"Over 40m\", \"value\": \"40+\"}]\n\n* IF asking for heightMm, use EXACTLY:\n  [{\"label\": \"1500mm\", \"value\": 1500}, {\"label\": \"1800mm\", \"value\": 1800}]\n\n* IF asking for removeOldFence, use EXACTLY:\n  [{\"label\": \"Yes, please remove it\", \"value\": true}, {\"label\": \"No, starting fresh\", \"value\": false}]\n\n* IF asking for siteAccess, use EXACTLY:\n  [{\"label\": \"Easy (flat, clear)\", \"value\": \"easy\"}, {\"label\": \"Difficult (sloped, tight)\", \"value\": \"difficult\"}]\n\n- NEVER invent or assume details. Acknowledge what they gave, ask what's missing ONE at a time.\n- If they give an exact number for length, accept it without asking.\n\nCRITICAL UI RULE (DO NOT IGNORE):\nNEVER list the choices inside the \"message\" string. The \"message\" must ONLY be a short conversational question. The actual choices MUST go exclusively inside the \"options\" JSON array using the exact mappings above.\n\n\nCRITICAL PERSPECTIVE RULE: \nNever speak from the user's point of view (do not use \"I\" or \"Can I...\"). Always address the user directly in the second person (\"You\"). \n- Correct question format: \"Would you like to compare a quote?\" or \"Do you want to beat a $2400 quote for a 20m Colorbond fence in Berwick?\"\n- Never frame the assistant's questions as if the user is asking them to themselves.\n\n=== EXAMPLES OF EXPECTED OUTPUT ===\n\nExample 1 (Asking a question with MCQs - Short & Punchy):\n{\n  \"type\": \"question\",\n  \"message\": \"Hey! I can help you get a fencing quote sorted. What type of fence are you after?\",\n  \"options\": [\n    {\"label\": \"Timber\", \"value\": \"Timber\"},\n    {\"label\": \"Colorbond\", \"value\": \"Colorbond\"},\n    {\"label\": \"Aluminium\", \"value\": \"Aluminium\"},\n    {\"label\": \"Pool Fencing\", \"value\": \"Pool Fencing\"}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": null,\n    \"lengthMeters\": null,\n    \"heightMm\": null,\n    \"removeOldFence\": null,\n    \"siteAccess\": null\n  }\n}\n\nExample 2 (Asking Yes/No MCQ for removal - Short acknowledgement):\n{\n  \"type\": \"question\",\n  \"message\": \"Timber it is, nice choice! Do you need an old fence removed first?\",\n  \"options\": [\n    {\"label\": \"Yes, please remove it\", \"value\": true},\n    {\"label\": \"No, starting fresh\", \"value\": false}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": null,\n    \"heightMm\": null,\n    \"removeOldFence\": null,\n    \"siteAccess\": null\n  }\n}\n\nExample 3 (All 6 known - ask for confirmation, do NOT complete yet):\n{\n  \"type\": \"confirmation\",\n  \"message\": \"Got it — Sydney, Timber, 15m, removing the old fence, easy access. Did I get all that right?\",\n  \"options\": [\n    {\"label\": \"Yes, that's all correct\", \"value\": \"yes\"},\n    {\"label\": \"No, something's wrong\", \"value\": \"no\"}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}\n\nExample 4 (User replied \"yes\" to the confirmation - now handoff):\n{\n  \"type\": \"message\",\n  \"message\": \"Perfect, got all the details! Let me check what businesses are available near you...\",\n  \"options\": [],\n  \"checklistComplete\": true,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}\n\nExample 5 (User replied \"no\" - ask what to fix, then they give a direct correction):\n{\n  \"type\": \"message\",\n  \"message\": \"No worries — what should I fix?\",\n  \"options\": [],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}\nThen if they reply \"it's Colorbond, not Timber\", update the field and go straight back to the confirmation step:\n{\n  \"type\": \"confirmation\",\n  \"message\": \"Got it — Colorbond instead. So: Sydney, Colorbond, 15m, removing the old fence, easy access. All correct now?\",\n  \"options\": [\n    {\"label\": \"Yes, that's all correct\", \"value\": \"yes\"},\n    {\"label\": \"No, something's wrong\", \"value\": \"no\"}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Colorbond\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}"
+          "systemMessage": "You're a friendly, easygoing assistant helping people in Australia get a fencing quote by connecting them with real local fencing businesses. Talk like a helpful person, not a form or a robot — warm, natural, a little casual. \n\nCONCISENESS RULE (CRITICAL): \nKeep every message VERY SHORT. Use a maximum of 1 to 2 short sentences per reply. Be punchy and get straight to the point without rambling. Use quick acknowledgements ('Got it', 'Nice one', 'No worries'). Never sound scripted or write long paragraphs.\n\nSCOPE — FENCING ONLY: This assistant exclusively handles fencing quotes (Timber, Colorbond, Aluminium, Pool Fencing, Security/Chainmesh, Rural). If a user asks for non-fencing jobs (deck, pergola, bathroom, etc.), warmly but briefly explain you only handle fencing quotes and ask if they'd like one instead.\n\nYOUR JOB: chat naturally to fill in the checklist below about the user's FENCING job. You never search for businesses or quote prices yourself.\n\nCHECKLIST TO COMPLETE (in any order):\n1. suburb — Australian suburb (Free text)\n2. fenceType — Timber, Colorbond, Aluminium, Pool Fencing, Security/Chainmesh, or Rural\n3. lengthMeters — length in metres as an exact NUMBER (e.g. 25). No ranges: if they answer with a span like \"20 to 30\", ask which figure is closer rather than storing the span.\n4. heightMm — 1200, 1500, 1800 or 2100 (Number). These are the only heights businesses publish a rate for.\n5. removeOldFence — true or false (Boolean)\n6. siteAccess — 'easy' (flat, clear) or 'difficult' (sloped, uneven, tight access). ONLY ASK THIS IF removeOldFence IS true: it exists to price the removal, so with nothing to remove it is not a question, leave it null.\n7. existingPrice — OPTIONAL, and never ask for it. A number, only when the customer volunteers a quote they already have (\"someone quoted me $4,000\") or one is found in an attached quote document. It is what turns the results into a direct comparison against their quote. Its absence never blocks anything.\n\nALREADY ESTABLISHED BLOCK (READ THIS FIRST, EVERY TURN):\nThe message you receive may end with a section headed '--- Already established for this job, do NOT ask about these again ---' followed by JSON. Those values are settled fact for this job. Copy every one of them into your \"checklist\" verbatim, and NEVER ask a question about a field that appears there — not even to double-check. It exists precisely because you cannot rely on remembering things you were told several turns ago. If the customer's newest message contradicts one of those values, the newest message wins and you update it; otherwise treat the block as read-only.\n\nCRITICAL STATE RULE: \nYou MUST carry forward any previously filled checklist values in every response. NEVER reset a known value back to null. Review the chat history carefully to see what has already been answered. Only ask about fields that are currently `null`.\n\nATTACHED FILE/IMAGE CONTEXT: the message you receive may include a section starting with '--- Attached file/image content ---'. If it gives values for any checklist field, treat those as already known. Ignore any $ price mentioned in the attachment.\n\nTHE OPENER — FIRST TURN ONLY (CRITICAL):\nIf there is no previous assistant message in the conversation history, this is the first turn. Do NOT ask a checklist question yet. Say that you don't have enough to price the job, and ask if they'll answer a few questions — that is the WHOLE message.\nKeep it to ONE short sentence plus the question. Do NOT list what's missing, do NOT explain what you're going to ask about, do NOT repeat their description back in detail. Two lines of text is already too long here.\nSet \"type\": \"message\", \"options\": [], and fill \"checklist\" with whatever their description already told you (everything else stays null). From the next turn on, follow the normal rules below.\nExample: {\"type\": \"message\", \"message\": \"Got it — a Colorbond fence in Berwick. That's not quite enough for me to price it accurately though. Happy to answer a few quick questions?\", \"options\": [], \"checklistComplete\": false, \"checklist\": {\"suburb\": \"Berwick\", \"fenceType\": \"Colorbond\", \"lengthMeters\": null, \"heightMm\": null, \"removeOldFence\": null, \"siteAccess\": null}}\n\nRANGES STAY RANGES (CRITICAL):\nWhen the customer picks one of the lengthMeters buckets, store that bucket's value string EXACTLY as given (\"20-40\"), never a single number from inside it. Picking \"20-40m\" and having their brief come back saying \"30m\" is wrong — they never said 30, and they will be quoted for a job they didn't describe. Only ever store a plain number when the customer gave you an exact one themselves (\"it's 25 metres\" -> 25).\n\nUNITS — CONVERT, NEVER REJECT (CRITICAL):\nThe checklist stores heightMm in MILLIMETRES and lengthMeters in METRES. The customer will not think in those units and should never be asked to. Convert whatever they give you:\n- Height: \"1.8m\" / \"1.8 metres\" / \"1.8\" -> 1800. \"180cm\" -> 1800. \"6 foot\" / \"6ft\" -> 1800. \"1800\" -> 1800 (already mm).\n- Length: \"20000mm\" -> 20. \"2000cm\" -> 20. \"65 feet\" / \"65ft\" -> 20. \"20\" -> 20 (already metres). A range keeps both ends converted (\"60-90 feet\" -> \"18-27\").\n- No unit given at all? Assume the one that makes sense for a fence — a height under 10 is metres, 10 to 300 is centimetres (nobody builds a 150mm fence, but a 150cm one is standard), over 300 is already millimetres; a length under about 500 is already metres.\n- Keep the converted number even if it isn't one of the options you offered (1650mm is a real answer, don't round it to 1800).\n- Only ask again if it genuinely cannot be converted to a number (\"about a panel's worth\").\n\nNEVER PROMISE A NUMBER OF QUESTIONS. Do not say \"7 quick questions\", \"3 more to go\", or anything that counts them. You cannot know how many are left, and it makes you wrong a moment later.\n\nACKNOWLEDGE, THEN ASK: every question after the opener starts with a 2-4 word acknowledgement of what they just said (\"Colorbond it is.\", \"Nice, 20 metres.\"), then the question. Never fire the next question cold.\n\nIF THEY TYPE INSTEAD OF PICKING (CRITICAL): the user can always type a reply instead of clicking one of your options. Map what they typed onto the closest valid value for the field you asked about — \"about 35 metres\" -> lengthMeters 35, \"the tall one\" -> heightMm 1800, \"it's on a slope\" -> siteAccess \"difficult\", \"nah it's already gone\" -> removeOldFence false. If it genuinely doesn't map to that field, say so in one line and ask the same question again with the same options. Never silently drop what they typed, and never treat an unrelated question from them as an answer to your question — answer them briefly, then re-ask.\n\nCOUNT BEFORE YOU CONFIRM (CRITICAL): \"type\": \"confirmation\" is only ever valid when ALL SIX checklist fields have a real value. Count the nulls first. If even one is null, you ask that field instead — no recap, no \"all correct?\", no matter how much of the brief you already have.\n\nONCE ALL 6 ARE KNOWN — CONFIRMATION STEP (CRITICAL):\nDo NOT set checklistComplete=true yet. First, recap ALL 6 values in one short message (e.g. \"Got it — Pakenham, Pool Fencing, 15m, removing the old fence, easy access. All correct?\"). Set \"type\": \"confirmation\", keep \"checklistComplete\": false, and set \"options\" to EXACTLY:\n[{\"label\": \"Yes, that's all correct\", \"value\": \"yes\"}, {\"label\": \"No, something's wrong\", \"value\": \"no\"}]\n\nHANDLING THE CONFIRMATION REPLY:\n- If the user replies \"yes\" (or clearly confirms): NOW set \"checklistComplete\": true, write a short handoff message, \"type\": \"message\", \"options\": []. This is the ONLY time you may set checklistComplete=true.\n- If the user replies \"no\" (or says something is wrong): ask \"No worries — what should I fix?\", \"type\": \"message\", \"options\": [], keep checklistComplete false.\n- Then read what they say next:\n  * They give a field AND a new value (e.g. \"it's Colorbond, not Pool Fencing\") -> update that field in the checklist, then go back to the confirmation step above (recap everything again, ask \"all correct?\" again).\n  * They only name a field with no new value (e.g. \"the fence type is wrong\") -> set that field back to null in the checklist and ask about it using the normal MCQ rules above, then once answered, go back to the confirmation step again.\n- Repeat the confirmation step every time all 6 fields become known again, until the user actually replies \"yes\".\n\nCRITICAL OUTPUT FORMAT:\nYou must reply with ONLY a raw JSON object. NO plain text, NO conversational filler outside the JSON, NO markdown backticks (```json). Your ENTIRE output must be parsed by JSON.parse().\n\nHOW TO ASK QUESTIONS (THE MCQ RULE) - STRICT MAPPING:\n- Vague opener -> quick warm hello, ask ONE natural first question.\n- 'suburb' is the ONLY field that stays free text. If asking for suburb, you MUST set \"options\": [].\n- For ALL other fields, you MUST set \"type\": \"question\" and you MUST use EXACTLY the following arrays for the \"options\" field. DO NOT invent your own options or leave the array empty.\n\n* IF asking for fenceType, use EXACTLY:\n  [{\"label\": \"Timber\", \"value\": \"Timber\"}, {\"label\": \"Colorbond\", \"value\": \"Colorbond\"}, {\"label\": \"Aluminium\", \"value\": \"Aluminium\"}, {\"label\": \"Pool Fencing\", \"value\": \"Pool Fencing\"}, {\"label\": \"Security/Chainmesh\", \"value\": \"Security/Chainmesh\"}, {\"label\": \"Rural\", \"value\": \"Rural\"}]\n\n* IF asking for lengthMeters, use EXACTLY:\n  [{\"label\": \"Under 10m\", \"value\": \"1-10\"}, {\"label\": \"10-20m\", \"value\": \"10-20\"}, {\"label\": \"20-40m\", \"value\": \"20-40\"}, {\"label\": \"Over 40m\", \"value\": \"40+\"}]\n\n* IF asking for heightMm, use EXACTLY:\n  [{\"label\": \"1500mm\", \"value\": 1500}, {\"label\": \"1800mm\", \"value\": 1800}]\n\n* IF asking for removeOldFence, use EXACTLY:\n  [{\"label\": \"Yes, please remove it\", \"value\": true}, {\"label\": \"No, starting fresh\", \"value\": false}]\n\n* IF asking for siteAccess, use EXACTLY:\n  [{\"label\": \"Easy (flat, clear)\", \"value\": \"easy\"}, {\"label\": \"Difficult (sloped, tight)\", \"value\": \"difficult\"}]\n\n- NEVER invent or assume details. Acknowledge what they gave, ask what's missing ONE at a time.\n- If they give an exact number for length, accept it without asking.\n\nCRITICAL UI RULE (DO NOT IGNORE):\nNEVER list the choices inside the \"message\" string. The \"message\" must ONLY be a short conversational question. The actual choices MUST go exclusively inside the \"options\" JSON array using the exact mappings above.\n\n\nCRITICAL PERSPECTIVE RULE: \nNever speak from the user's point of view (do not use \"I\" or \"Can I...\"). Always address the user directly in the second person (\"You\"). \n- Correct question format: \"Would you like to compare a quote?\" or \"Do you want to beat a $2400 quote for a 20m Colorbond fence in Berwick?\"\n- Never frame the assistant's questions as if the user is asking them to themselves.\n\n=== EXAMPLES OF EXPECTED OUTPUT ===\n\nExample 1 (Asking a question with MCQs - Short & Punchy):\n{\n  \"type\": \"question\",\n  \"message\": \"Hey! I can help you get a fencing quote sorted. What type of fence are you after?\",\n  \"options\": [\n    {\"label\": \"Timber\", \"value\": \"Timber\"},\n    {\"label\": \"Colorbond\", \"value\": \"Colorbond\"},\n    {\"label\": \"Aluminium\", \"value\": \"Aluminium\"},\n    {\"label\": \"Pool Fencing\", \"value\": \"Pool Fencing\"}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": null,\n    \"lengthMeters\": null,\n    \"heightMm\": null,\n    \"removeOldFence\": null,\n    \"siteAccess\": null\n  }\n}\n\nExample 2 (Asking Yes/No MCQ for removal - Short acknowledgement):\n{\n  \"type\": \"question\",\n  \"message\": \"Timber it is, nice choice! Do you need an old fence removed first?\",\n  \"options\": [\n    {\"label\": \"Yes, please remove it\", \"value\": true},\n    {\"label\": \"No, starting fresh\", \"value\": false}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": null,\n    \"heightMm\": null,\n    \"removeOldFence\": null,\n    \"siteAccess\": null\n  }\n}\n\nExample 3 (All 6 known - ask for confirmation, do NOT complete yet):\n{\n  \"type\": \"confirmation\",\n  \"message\": \"Got it — Sydney, Timber, 15m, removing the old fence, easy access. Did I get all that right?\",\n  \"options\": [\n    {\"label\": \"Yes, that's all correct\", \"value\": \"yes\"},\n    {\"label\": \"No, something's wrong\", \"value\": \"no\"}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}\n\nExample 4 (User replied \"yes\" to the confirmation - now handoff):\n{\n  \"type\": \"message\",\n  \"message\": \"Perfect, got all the details! Let me check what businesses are available near you...\",\n  \"options\": [],\n  \"checklistComplete\": true,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}\n\nExample 5 (User replied \"no\" - ask what to fix, then they give a direct correction):\n{\n  \"type\": \"message\",\n  \"message\": \"No worries — what should I fix?\",\n  \"options\": [],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Timber\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}\nThen if they reply \"it's Colorbond, not Timber\", update the field and go straight back to the confirmation step:\n{\n  \"type\": \"confirmation\",\n  \"message\": \"Got it — Colorbond instead. So: Sydney, Colorbond, 15m, removing the old fence, easy access. All correct now?\",\n  \"options\": [\n    {\"label\": \"Yes, that's all correct\", \"value\": \"yes\"},\n    {\"label\": \"No, something's wrong\", \"value\": \"no\"}\n  ],\n  \"checklistComplete\": false,\n  \"checklist\": {\n    \"suburb\": \"Sydney\",\n    \"fenceType\": \"Colorbond\",\n    \"lengthMeters\": 15,\n    \"heightMm\": 1800,\n    \"removeOldFence\": false,\n    \"siteAccess\": \"easy\"\n  }\n}"
         }
       },
       "id": "f270a211-95a7-4516-84c9-7791ad112a38",
@@ -500,7 +514,7 @@
     {
       "parameters": {
         "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"type\": { \"type\": \"string\", \"enum\": [\"message\", \"question\", \"confirmation\"] },\n    \"message\": { \"type\": \"string\" },\n    \"options\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"label\": { \"type\": \"string\" },\n          \"value\": {}\n        }\n      }\n    },\n    \"checklistComplete\": { \"type\": \"boolean\" },\n    \"checklist\": {\n      \"type\": [\"object\", \"null\"],\n      \"properties\": {\n        \"suburb\": { \"type\": [\"string\", \"null\"] },\n        \"fenceType\": { \"type\": [\"string\", \"null\"] },\n        \"lengthMeters\": { \"type\": [\"number\", \"string\", \"null\"] },\n        \"heightMm\": { \"type\": [\"number\", \"null\"] },\n        \"removeOldFence\": { \"type\": [\"boolean\", \"null\"] },\n        \"siteAccess\": { \"type\": [\"string\", \"null\"] }\n      }\n    }\n  },\n  \"required\": [\"type\", \"message\", \"options\", \"checklistComplete\", \"checklist\"]\n}"
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"type\": { \"type\": \"string\", \"enum\": [\"message\", \"question\", \"confirmation\"] },\n    \"message\": { \"type\": \"string\" },\n    \"options\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"label\": { \"type\": \"string\" },\n          \"value\": {}\n        }\n      }\n    },\n    \"checklistComplete\": { \"type\": \"boolean\" },\n    \"checklist\": {\n      \"type\": [\"object\", \"null\"],\n      \"properties\": {\n        \"suburb\": { \"type\": [\"string\", \"null\"] },\n        \"fenceType\": { \"type\": [\"string\", \"null\"] },\n        \"lengthMeters\": { \"type\": [\"number\", \"string\", \"null\"] },\n        \"heightMm\": { \"type\": [\"number\", \"null\"] },\n        \"removeOldFence\": { \"type\": [\"boolean\", \"null\"] },\n        \"siteAccess\": { \"type\": [\"string\", \"null\"] },\n        \"existingPrice\": { \"type\": [\"number\", \"null\"] }\n      }\n    }\n  },\n  \"required\": [\"type\", \"message\", \"options\", \"checklistComplete\", \"checklist\"]\n}"
       },
       "id": "9cb7bdb9-0a6d-4da5-a794-bc650ec659e2",
       "name": "Structured Output Parser (New Quote)",
@@ -513,7 +527,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// N8N CRASH FIX: use .first() instead of .item, same as elsewhere in this workflow\nconst sessionId = $('Normalize Input1').first().json.sessionId || null;\nconst intent = $('Format Comparison Result').first().json.intent;\n\n// The Structured Output Parser + OpenAI json_object mode already guarantee valid,\n// schema-shaped JSON here — $json.output is the parsed object directly.\nconst parsed = $input.first().json.output || {};\n\nconst FIELDS = ['suburb', 'fenceType', 'lengthMeters', 'heightMm', 'removeOldFence', 'siteAccess'];\n\n// The canonical question + option set per field, identical to the ones the agent's\n// prompt hands it. Kept here so this node can ask a field itself when the model\n// tries to skip ahead — the choices are fixed, they never needed the LLM.\nconst ASK = {\n  suburb: { message: 'Which suburb is the fence going in?', options: [] },\n  fenceType: {\n    message: 'What type of fence are you after?',\n    options: [\n      { label: 'Timber', value: 'Timber' },\n      { label: 'Colorbond', value: 'Colorbond' },\n      { label: 'Aluminium', value: 'Aluminium' },\n      { label: 'Pool Fencing', value: 'Pool Fencing' },\n      { label: 'Security/Chainmesh', value: 'Security/Chainmesh' },\n      { label: 'Rural', value: 'Rural' },\n    ],\n  },\n  lengthMeters: {\n    message: 'Roughly how long is the fence?',\n    options: [\n      { label: 'Under 10m', value: '1-10' },\n      { label: '10-20m', value: '10-20' },\n      { label: '20-40m', value: '20-40' },\n      { label: 'Over 40m', value: '40+' },\n    ],\n  },\n  heightMm: {\n    message: 'What height are you after?',\n    options: [\n      { label: '1500mm', value: 1500 },\n      { label: '1800mm', value: 1800 },\n    ],\n  },\n  removeOldFence: {\n    message: 'Is there an old fence that needs removing?',\n    options: [\n      { label: 'Yes, please remove it', value: true },\n      { label: 'No, starting fresh', value: false },\n    ],\n  },\n  siteAccess: {\n    message: \"How's the access along the fence line?\",\n    options: [\n      { label: 'Easy (flat, clear)', value: 'easy' },\n      { label: 'Difficult (sloped, tight)', value: 'difficult' },\n    ],\n  },\n};\n\n// What the client already has on screen. A turn that quietly drops an established value back\n// to null is what produced \"it asked me for the suburb again\" — restore it before anything\n// downstream counts what's still missing or decides which question is due.\nlet known = {};\ntry {\n  known = JSON.parse($('Normalize Input1').first().json.knownChecklist || '{}') || {};\n} catch (error) {\n  known = {};\n}\n\nconst merged = { ...(parsed.checklist || {}) };\nfor (const field of FIELDS) {\n  if ((merged[field] === null || merged[field] === undefined) && known[field] !== null && known[field] !== undefined) {\n    merged[field] = known[field];\n  }\n}\n// Fences run roughly 600-2400mm, i.e. 60-240cm or 0.6-2.4m, and those three ranges barely\n// overlap: under 10 was metres, 10-300 was centimetres (nothing is a 150mm fence, while a\n// 150cm one is standard), above 300 is already millimetres. lengthMeters gets no such guard\n// on purpose — a 600m rural boundary is a genuine answer, so there is no out-of-range value\n// to key off, and the prompt handles that one instead.\nif (merged.heightMm !== null && merged.heightMm !== undefined) {\n  const height = Number(merged.heightMm);\n  if (Number.isFinite(height) && height > 0) {\n    merged.heightMm = height < 10 ? Math.round(height * 1000) : height <= 300 ? Math.round(height * 10) : Math.round(height);\n  }\n}\n\nconst checklist = Object.keys(merged).length > 0 ? merged : null;\nconst missing = checklist ? FIELDS.filter((f) => checklist[f] === null || checklist[f] === undefined) : FIELDS;\nconst nextField = missing[0];\n\nlet type = ['question', 'confirmation'].includes(parsed.type) ? parsed.type : 'message';\nlet message = typeof parsed.message === 'string' ? parsed.message.trim() : '';\nlet options = Array.isArray(parsed.options) ? parsed.options : [];\n\n// Nothing downstream can recover from an empty bubble, so never emit one: fall back to\n// the question that was actually due, or to an honest apology if the brief is finished.\nif (!message) {\n  message = nextField\n    ? ASK[nextField].message\n    : \"Sorry, something went wrong on my end — mind trying that again in a moment?\";\n  if (nextField) {\n    type = ASK[nextField].options.length ? 'question' : 'message';\n    options = ASK[nextField].options;\n  } else {\n    type = 'message';\n    options = [];\n  }\n}\n\n// The model decides when to recap and when to hand off, and it sometimes does both\n// early — recapping after three answers, then (once the user confirms) carrying on\n// with the fields it never asked about. Both are only valid with all six known.\nif (missing.length > 0) {\n  if (type === 'confirmation') {\n    type = ASK[nextField].options.length ? 'question' : 'message';\n    message = ASK[nextField].message;\n    options = ASK[nextField].options;\n  }\n}\n\nreturn [{\n  json: {\n    sessionId,\n    intent,\n    type,\n    message,\n    options,\n    // Ranking runs off this flag, so it only flips once every field genuinely has a value.\n    checklistComplete: missing.length === 0 && !!parsed.checklistComplete,\n    checklist,\n    results: [],\n    avgRatePerMeter: null,\n  },\n}];"
+        "jsCode": "// N8N CRASH FIX: use .first() instead of .item, same as elsewhere in this workflow\nconst sessionId = $('Normalize Input1').first().json.sessionId || null;\n// The place the customer picked, carried through so ranking can measure real distance to\n// each business's service area rather than comparing suburb names.\nlet place = null;\ntry {\n  place = JSON.parse($('Normalize Input1').first().json.place || 'null');\n} catch (error) {\n  place = null;\n}\n\n// The Structured Output Parser + OpenAI json_object mode already guarantee valid,\n// schema-shaped JSON here — $json.output is the parsed object directly.\nconst parsed = $input.first().json.output || {};\n\n// One checklist for both kinds of request. 'compare a quote I already have' stopped being a\n// separate flow with a separate agent: it is this same brief plus an optional existingPrice,\n// which is a field, not a branch. siteAccess is conditional — see isMissing below.\nconst FIELDS = ['suburb', 'fenceType', 'lengthMeters', 'heightMm', 'removeOldFence', 'siteAccess'];\n\n// The canonical question + option set per field, identical to the ones the agent's\n// prompt hands it. Kept here so this node can ask a field itself when the model\n// tries to skip ahead — the choices are fixed, they never needed the LLM.\nconst ASK = {\n  suburb: { message: 'Which suburb is the fence going in?', options: [] },\n  fenceType: {\n    message: 'What type of fence are you after?',\n    options: [\n      { label: 'Timber', value: 'Timber' },\n      { label: 'Colorbond', value: 'Colorbond' },\n      { label: 'Aluminium', value: 'Aluminium' },\n      { label: 'Pool Fencing', value: 'Pool Fencing' },\n      { label: 'Security/Chainmesh', value: 'Security/Chainmesh' },\n      { label: 'Rural', value: 'Rural' },\n    ],\n  },\n  lengthMeters: {\n    // Typed, not picked. A bucket priced the job at a length nobody had actually said, and the\n    // rate is per metre — so the one number the pricing needs is the real one.\n    message: 'How long is the fence, in metres?',\n    options: [],\n  },\n  heightMm: {\n    // Exactly the heights businesses publish a per-metre rate against (rates are keyed 1.2,\n    // 1.5, 1.8, 2.1). Offering a height nobody prices only produces an empty result page.\n    message: 'What height are you after?',\n    options: [\n      { label: '1200mm', value: 1200 },\n      { label: '1500mm', value: 1500 },\n      { label: '1800mm', value: 1800 },\n      { label: '2100mm', value: 2100 },\n    ],\n  },\n  removeOldFence: {\n    message: 'Is there an old fence that needs removing?',\n    options: [\n      { label: 'Yes, please remove it', value: true },\n      { label: 'No, starting fresh', value: false },\n    ],\n  },\n  siteAccess: {\n    message: \"How's the access along the fence line?\",\n    options: [\n      { label: 'Easy (flat, clear)', value: 'easy' },\n      { label: 'Difficult (sloped, tight)', value: 'difficult' },\n    ],\n  },\n};\n\n// What the client already has on screen. A turn that quietly drops an established value back\n// to null is what produced \"it asked me for the suburb again\" — restore it before anything\n// downstream counts what's still missing or decides which question is due.\nlet known = {};\ntry {\n  known = JSON.parse($('Normalize Input1').first().json.knownChecklist || '{}') || {};\n} catch (error) {\n  known = {};\n}\n\nconst merged = { ...(parsed.checklist || {}) };\nfor (const field of FIELDS) {\n  if ((merged[field] === null || merged[field] === undefined) && known[field] !== null && known[field] !== undefined) {\n    merged[field] = known[field];\n  }\n}\n// Fences run roughly 600-2400mm, i.e. 60-240cm or 0.6-2.4m, and those three ranges barely\n// overlap: under 10 was metres, 10-300 was centimetres (nothing is a 150mm fence, while a\n// 150cm one is standard), above 300 is already millimetres. lengthMeters gets no such guard\n// on purpose — a 600m rural boundary is a genuine answer, so there is no out-of-range value\n// to key off, and the prompt handles that one instead.\nif (merged.heightMm !== null && merged.heightMm !== undefined) {\n  const height = Number(merged.heightMm);\n  if (Number.isFinite(height) && height > 0) {\n    merged.heightMm = height < 10 ? Math.round(height * 1000) : height <= 300 ? Math.round(height * 10) : Math.round(height);\n  }\n}\n\n// existingPrice rides along on the checklist but is never required — it only decides whether\n// the results read as \"vs the market\" or \"vs the quote you already have\".\nif (known.existingPrice !== null && known.existingPrice !== undefined && (merged.existingPrice === null || merged.existingPrice === undefined)) {\n  merged.existingPrice = known.existingPrice;\n}\n\nconst checklist = Object.keys(merged).length > 0 ? merged : null;\n// siteAccess prices the removal and nothing else, so with no removal there is nothing to ask.\nconst isMissing = (field) => {\n  if (!checklist) return true;\n  if (field === 'siteAccess' && checklist.removeOldFence === false) return false;\n  return checklist[field] === null || checklist[field] === undefined;\n};\nconst missing = FIELDS.filter(isMissing);\nconst nextField = missing[0];\n\nlet type = ['question', 'confirmation'].includes(parsed.type) ? parsed.type : 'message';\nlet message = typeof parsed.message === 'string' ? parsed.message.trim() : '';\nlet options = Array.isArray(parsed.options) ? parsed.options : [];\n\n// Nothing downstream can recover from an empty bubble, so never emit one: fall back to\n// the question that was actually due, or to an honest apology if the brief is finished.\nif (!message) {\n  message = nextField\n    ? ASK[nextField].message\n    : \"Sorry, something went wrong on my end — mind trying that again in a moment?\";\n  if (nextField) {\n    type = ASK[nextField].options.length ? 'question' : 'message';\n    options = ASK[nextField].options;\n  } else {\n    type = 'message';\n    options = [];\n  }\n}\n\n// The model decides when to recap and when to hand off, and it sometimes does both\n// early — recapping after three answers, then (once the user confirms) carrying on\n// with the fields it never asked about. Both are only valid with all six known.\nif (missing.length > 0) {\n  if (type === 'confirmation') {\n    type = ASK[nextField].options.length ? 'question' : 'message';\n    message = ASK[nextField].message;\n    options = ASK[nextField].options;\n  }\n}\n\n// Which field the client should collect with something other than a plain text box. Only the\n// suburb qualifies: a mistyped suburb doesn't fail loudly, it silently matches zero businesses,\n// so the client swaps its reply box for a Google-backed suburb picker and sends back a real\n// place. Derived from the checklist, never from the model — 'suburb' is first in FIELDS, so it\n// is the field due whenever it is still missing. The empty-options guard keeps the picker off a\n// turn that is asking something else (every other field is answered by tapping an option).\n// Every other check here is also true on the opening \"can I ask you a few questions?\"\n// greeting — the suburb is still missing and a greeting carries no options either — so the\n// message itself has to say what it is asking for. Deterministic on purpose: the alternative\n// is trusting the model to label its own turn, and it is the model getting this wrong that\n// put a suburb picker on the greeting in the first place.\nconst asksForSuburb = /\\bsuburbs?\\b|\\bpost ?code\\b/i.test(message);\nconst expectsSuburb = nextField === 'suburb' && options.length === 0 && asksForSuburb;\n\nreturn [{\n  json: {\n    sessionId,\n    // Kept for the client, which words the results headline differently for a direct\n    // comparison — but derived from the brief now instead of a classifier that could flip\n    // mid-conversation and hand the job to a second agent with a different checklist.\n    intent: checklist && checklist.existingPrice !== null && checklist.existingPrice !== undefined ? 'compare_quote' : 'new_quote',\n    place,\n    type,\n    message,\n    options,\n    // Absent, not null, when there is nothing special to collect — an older client that\n    // doesn't know this field is unaffected either way.\n    ...(expectsSuburb ? { expects: 'suburb' } : {}),\n    // Ranking runs off this flag, so it only flips once every field genuinely has a value.\n    checklistComplete: missing.length === 0 && !!parsed.checklistComplete,\n    checklist,\n    results: [],\n    avgRatePerMeter: null,\n  },\n}];"
       },
       "id": "9def853e-fd51-4237-b4da-4debab0a46ae",
       "name": "Format New-Quote Result1",
@@ -584,7 +598,8 @@
       "position": [
         4288,
         9312
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -618,7 +633,8 @@
       "position": [
         4736,
         9216
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -631,7 +647,8 @@
       "position": [
         4960,
         9216
-      ]
+      ],
+      "disabled": true
     },
     {
       "parameters": {
@@ -677,7 +694,125 @@
           "id": "60fDHVepfLD57qLe",
           "name": "quest fence chat model"
         }
-      }
+      },
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "getAll",
+        "projectId": "quotemy-ai",
+        "database": "(default)",
+        "collection": "businesses",
+        "returnAll": true,
+        "simple": true
+      },
+      "id": "fetch-businesses-0001",
+      "name": "Fetch Businesses",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        4288,
+        9700
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Which businesses can actually take this job. Two gates, in this order:\n//\n//   1. SUBURB — the business's registered service area must BE the customer's suburb. This is\n//      absolute: a Darwin business never appears for a Pakenham customer, no matter how large\n//      a radius it has saved. Filling three result cards is not worth showing somebody a\n//      business 3,000 km away.\n//   2. RADIUS — inside that suburb, the business's own travel radius must still reach them.\n//\n// The match is on Google's placeId, not on the spelling of the suburb: the business stored one\n// when it signed up and the customer's picker returns one, and they are the same id for the\n// same place. Name is only a fallback for records saved before the id was kept.\nconst gate = $('Format New-Quote Result1').first().json;\nconst checklist = gate.checklist || {};\nconst place = gate.place;\n\nconst TRADE = 'fencing';\n\n// Free text and stored slugs never agree on case or separators ('Pool Fencing' typed by a\n// customer vs 'pool-fencing' saved at signup), so both sides are reduced to one shape before\n// they are ever compared. A silent mismatch here reads as \"nobody can do this job\".\nconst slug = (value) =>\n  String(value == null ? '' : value).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\n\n// Firestore values arrive plain through the n8n node, but a raw REST shape ({ doubleValue })\n// costs one line to tolerate and saves a whole class of \"why is everything zero\".\nconst num = (value) => {\n  const raw = value !== null && typeof value === 'object'\n    ? (value.doubleValue ?? value.integerValue ?? value.stringValue ?? null)\n    : value;\n  const parsed = Number(raw);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\n// Haversine, in metres. A spherical earth is well inside the error a 25 km service radius\n// already tolerates.\nconst distanceMeters = (fromLat, fromLng, toLat, toLng) => {\n  const R = 6371000;\n  const rad = (deg) => (deg * Math.PI) / 180;\n  const dLat = rad(toLat - fromLat);\n  const dLng = rad(toLng - fromLng);\n  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(fromLat)) * Math.cos(rad(toLat)) * Math.sin(dLng / 2) ** 2;\n  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));\n};\n\nconst lat = place ? num(place.latitude) : null;\nconst lng = place ? num(place.longitude) : null;\n// No coordinates is a different failure from \"nobody covers you\", and the customer is told so\n// rather than being shown an empty page.\nif (lat === null || lng === null) return [{ json: { noMatch: true, noMatchReason: 'place' } }];\n\n// placeIds are opaque and case-sensitive, so they are compared as-is; only the human-typed\n// name gets normalised.\nconst wantedPlaceId = String((place && place.placeId) || '').trim();\nconst wantedSuburb = slug((place && (place.suburb || place.name)) || checklist.suburb);\n\nconst matches = [];\nlet outsideRadius = 0;\nfor (const item of $input.all()) {\n  const business = item.json || {};\n  const services = Array.isArray(business.services_provided) ? business.services_provided.map(slug) : [];\n  if (!services.includes(TRADE)) continue;\n\n  const area = business.serviceArea || {};\n  const areaPlaceId = String(area.id || '').trim();\n  const sameSuburb = areaPlaceId && wantedPlaceId\n    ? areaPlaceId === wantedPlaceId\n    : !!wantedSuburb && slug(area.name) === wantedSuburb;\n  if (!sameSuburb) continue;\n\n  const areaLat = num(area.latitude);\n  const areaLng = num(area.longitude);\n  const radius = num(area.radiusMeters);\n  if (areaLat === null || areaLng === null || radius === null) continue;\n\n  const distance = distanceMeters(lat, lng, areaLat, areaLng);\n  // Right suburb, but they don't travel that far within it.\n  if (distance > radius) { outsideRadius += 1; continue; }\n\n  matches.push({\n    json: {\n      uid: business.uid,\n      businessName: business.businessName || 'Unnamed business',\n      rating: num(business.rating),\n      reviewCount: num(business.reviewCount),\n      isAutoAcceptEnabled: business.isAutoAcceptEnabled === true,\n      // Separate from the one above on purpose: that toggle governs jobs from the web form,\n      // this one governs jobs that came through this assistant. It decides whether the job\n      // lands in the business's accepted_jobs or waits in incoming_jobs.\n      autoAcceptsAi: business.isAiAutoAcceptEnabled === true,\n      distanceMeters: Math.round(distance),\n      distanceKm: Math.round(distance / 100) / 10,\n      suburb: (place && place.displayLabel) || checklist.suburb || '',\n    },\n  });\n}\n\nif (matches.length === 0) {\n  return [{ json: { noMatch: true, noMatchReason: outsideRadius > 0 ? 'radius' : 'suburb' } }];\n}\n// Nearest first, so the pricing reads that follow happen in a sensible order. Price, not\n// distance, decides the actual ranking.\nmatches.sort((a, b) => a.json.distanceMeters - b.json.distanceMeters);\nreturn matches;"
+      },
+      "id": "filter-service-area-01",
+      "name": "Filter Businesses by Service Area",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4512,
+        9700
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-no-match",
+              "leftValue": "={{ $json.noMatch }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "any-business-in-range",
+      "name": "Any Business In Range?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4736,
+        9700
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nobody's service area reaches this customer — or we never got coordinates to check against.\n// Either way this belongs back in the chat thread, where the suburb can be corrected in one\n// line, not on an empty results page.\nconst gate = $('Format New-Quote Result1').first().json;\nconst reason = $input.first().json.noMatchReason || 'area';\n\nreturn [{\n  json: {\n    sessionId: gate.sessionId || null,\n    intent: gate.intent,\n    type: 'result',\n    message: reason === 'place'\n      ? \"I couldn't place that suburb on the map. Could you pick it from the suggestions?\"\n      : reason === 'radius'\n        ? \"There are fencing businesses in that suburb, but none of them travel far enough to reach you.\"\n        : \"No fencing business has registered that suburb yet. Try a nearby suburb?\",\n    options: [],\n    results: [],\n    avgRatePerMeter: null,\n    comparison: null,\n    noMatchReason: reason,\n    checklist: gate.checklist,\n    checklistComplete: true,\n  },\n}];"
+      },
+      "id": "no-match-response-001",
+      "name": "Format No-Match Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4960,
+        9580
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "get",
+        "projectId": "quotemy-ai",
+        "database": "(default)",
+        "collection": "=businesses/{{ $json.uid }}/pricing",
+        "documentId": "fencing",
+        "simple": true
+      },
+      "id": "fetch-pricing-000001",
+      "name": "Fetch Pricing",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        4960,
+        9820
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 2000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Every business that covers the customer, priced off its own published rates, ranked cheapest\n// first. One pricing doc per business arrives here, in the same order the filter emitted them.\nconst gate = $('Format New-Quote Result1').first().json;\nconst checklist = gate.checklist || {};\nconst sessionId = gate.sessionId || null;\nconst intent = gate.intent;\nconst covering = $('Filter Businesses by Service Area').all();\n\n// Free text and stored slugs never agree on case or separators ('Pool Fencing' typed by a\n// customer vs 'pool-fencing' saved at signup), so both sides are reduced to one shape before\n// they are ever compared. A silent mismatch here reads as \"nobody can do this job\".\nconst slug = (value) =>\n  String(value == null ? '' : value).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\n\n// Firestore values arrive plain through the n8n node, but a raw REST shape ({ doubleValue })\n// costs one line to tolerate and saves a whole class of \"why is everything zero\".\nconst num = (value) => {\n  const raw = value !== null && typeof value === 'object'\n    ? (value.doubleValue ?? value.integerValue ?? value.stringValue ?? null)\n    : value;\n  const parsed = Number(raw);\n  return Number.isFinite(parsed) ? parsed : null;\n};\n\nconst wanted = slug(checklist.fenceType);\n// Rates are keyed by height in metres: 1800mm is published as \"1.8\".\nconst heightMm = num(checklist.heightMm);\nconst heightKey = heightMm === null ? null : String(heightMm / 1000);\n\n// The customer gives an exact length and the business publishes an exact rate, so the total is\n// exact as well. The ±3% band that used to sit around it was expressing the uncertainty of a\n// length bucket, and there are no buckets any more.\nconst lengthMetres = num(checklist.lengthMeters);\nconst quotes = [];\nlet blockedByType = 0;\nlet blockedByHeight = 0;\n\nconst pricingItems = $input.all();\nfor (let index = 0; index < pricingItems.length; index += 1) {\n  const business = (covering[index] || {}).json || {};\n  const pricing = pricingItems[index].json || {};\n  if (!business.uid || pricing.isComplete !== true) continue;\n\n  const enabled = Array.isArray(pricing.enabledTypes) ? pricing.enabledTypes.map(slug) : [];\n  if (!enabled.includes(wanted)) { blockedByType += 1; continue; }\n\n  // rates is keyed by the business's own spelling of the type, so find the key that means the\n  // same thing rather than assuming ours matches theirs.\n  const rates = pricing.rates || {};\n  const rateKey = Object.keys(rates).find((key) => slug(key) === wanted);\n  const rate = rateKey && heightKey !== null ? num((rates[rateKey] || {})[heightKey]) : null;\n  // A business that publishes no rate at this height cannot quote it. Dropping it is right;\n  // inventing a number from a neighbouring height would not be their price.\n  if (rate === null) { blockedByHeight += 1; continue; }\n\n  const removal = pricing.removal || {};\n  const removalRate =\n    checklist.removeOldFence === true && removal.offered === true ? (num(removal[checklist.siteAccess]) || 0) : 0;\n\n  const perMeter = rate + removalRate;\n  const minimumCharge = num(pricing.minimumCharge) || 0;\n  // Never below what the business will get out of bed for.\n  const total = Math.max(Math.round(perMeter * (lengthMetres || 0)), minimumCharge);\n\n  const badges = [];\n  // GST is per business and some publish inclusive, some not — the label goes on every card so\n  // a cheaper-looking number is never just a missing 10%.\n  badges.push(pricing.gstInclusive === true ? 'incl. GST' : 'excl. GST');\n  // Same suburb by definition, so this answers \"whereabouts in my suburb are they?\" — it is\n  // 0.0 km whenever a business registered the suburb centre itself rather than its address.\n  badges.push(business.distanceKm > 0 ? business.distanceKm + ' km away' : 'In your suburb');\n  if (business.rating) badges.push(business.reviewCount ? business.rating + '★ (' + business.reviewCount + ')' : business.rating + '★');\n  if (removalRate > 0) badges.push('Removal included');\n  if (business.isAutoAcceptEnabled) badges.push('Instant accept');\n\n  quotes.push({\n    uid: business.uid,\n    businessName: business.businessName,\n    suburb: business.suburb,\n    distanceKm: business.distanceKm,\n    ratePerMeter: rate,\n    removalPerMeter: removalRate,\n    minimumCharge,\n    gstInclusive: pricing.gstInclusive === true,\n    // Travels to the client so the saved job can go straight into this business's\n    // accepted_jobs instead of waiting in incoming_jobs.\n    autoAcceptsAi: business.autoAcceptsAi === true,\n    currency: pricing.currency || 'AUD',\n    projectTotalMin: total,\n    projectTotalMax: total,\n    estimatedTotal: total,\n    badges,\n  });\n}\n\nquotes.sort((a, b) => a.projectTotalMin - b.projectTotalMin || b.ratePerMeter - a.ratePerMeter);\nconst top = quotes.slice(0, 3);\n\nif (top.length === 0) {\n  // Say which wall they hit: a fence type nobody nearby does is a different problem from a\n  // height nobody prices, and only one of them is worth changing the answer for.\n  const reason = blockedByType > 0 && blockedByHeight === 0 ? 'fenceType' : blockedByHeight > 0 ? 'height' : 'pricing';\n  const message = reason === 'fenceType'\n    ? 'The businesses near you do not offer that fence type yet. Want to try a different type?'\n    : reason === 'height'\n      ? 'Nobody near you publishes a rate at that height. Want to try a different height?'\n      : 'I found businesses near you, but none of them have finished setting up their pricing yet.';\n  return [{ json: { sessionId, intent, type: 'result', message, options: [], results: [], avgRatePerMeter: null, comparison: null, noMatchReason: reason, checklist, checklistComplete: true } }];\n}\n\nconst average = Math.round(top.reduce((sum, q) => sum + q.projectTotalMin, 0) / top.length);\nconst existingPrice = num(checklist.existingPrice);\nconst benchmark = existingPrice === null ? average : existingPrice;\nconst cheapest = top[0].projectTotalMin;\n\nreturn [{\n  json: {\n    sessionId,\n    intent,\n    type: 'result',\n    message: 'Here are the local businesses that cover your job.',\n    options: [],\n    // The client's existing shape, so the results page needs no change to render these.\n    results: top.map((quote) => ({\n      businessId: quote.uid,\n      autoAcceptsAi: quote.autoAcceptsAi,\n      businessName: quote.businessName,\n      suburb: quote.suburb,\n      ratePerMeter: quote.ratePerMeter,\n      estimatedTotal: quote.estimatedTotal,\n      notes: quote.badges.join(' · '),\n    })),\n    avgRatePerMeter: Math.round(top.reduce((sum, q) => sum + q.ratePerMeter, 0) / top.length),\n    comparison: {\n      potentialSavings: benchmark > cheapest ? benchmark - cheapest : null,\n      marketAverage: average,\n      totalQuotesScreened: covering.length,\n      userExistingPrice: existingPrice,\n      quotes: top.map((quote) => ({\n        businessId: quote.uid,\n        autoAcceptsAi: quote.autoAcceptsAi,\n        businessName: quote.businessName,\n        ratePerMeter: quote.ratePerMeter,\n        projectTotalMin: quote.projectTotalMin,\n        projectTotalMax: quote.projectTotalMax,\n        badges: quote.badges,\n        tag: quote.projectTotalMin === cheapest ? 'BEST_VALUE' : null,\n        savingsFromAverage: benchmark > quote.projectTotalMin ? benchmark - quote.projectTotalMin : null,\n        suburb: quote.suburb,\n      })),\n    },\n    checklist,\n    checklistComplete: true,\n  },\n}];"
+      },
+      "id": "price-and-rank-00001",
+      "name": "Price & Rank Businesses",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5184,
+        9820
+      ]
     }
   ],
   "connections": {
@@ -786,133 +921,6 @@
         ]
       ]
     },
-    "Normalize Extracted Text": {
-      "main": [
-        [
-          {
-            "node": "Intent & Quote-Compare Agent",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Intent & Quote-Compare Agent": {
-      "main": [
-        [
-          {
-            "node": "Format Comparison Result",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Format Comparison Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Chat Memory (Compare Flow)": {
-      "ai_memory": [
-        [
-          {
-            "node": "Intent & Quote-Compare Agent",
-            "type": "ai_memory",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Structured Output Parser (Compare)": {
-      "ai_outputParser": [
-        [
-          {
-            "node": "Intent & Quote-Compare Agent",
-            "type": "ai_outputParser",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format Comparison Result": {
-      "main": [
-        [
-          {
-            "node": "Intent Router: Compare or New?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Intent Router: Compare or New?": {
-      "main": [
-        [
-          {
-            "node": "Comparison Checklist Complete?",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Fencing AI Agent1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Comparison Checklist Complete?": {
-      "main": [
-        [
-          {
-            "node": "Dummy Firebase Workers Data1",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Respond to Webhook1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Route: New-Quote or Compare Result?": {
-      "main": [
-        [
-          {
-            "node": "Rank & Format Comparison Response",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Rank and Format Top ",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Rank & Format Comparison Response": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Normalize Input1": {
       "main": [
         [
@@ -932,13 +940,6 @@
             "type": "main",
             "index": 0
           }
-        ],
-        [
-          {
-            "node": "Format New-Quote Result1",
-            "type": "main",
-            "index": 0
-          }
         ]
       ]
     },
@@ -947,11 +948,6 @@
         [
           {
             "node": "Fencing AI Agent1",
-            "type": "ai_languageModel",
-            "index": 0
-          },
-          {
-            "node": "Intent & Quote-Compare Agent",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -974,11 +970,6 @@
         [
           {
             "node": "Fencing AI Agent1",
-            "type": "ai_tool",
-            "index": 0
-          },
-          {
-            "node": "Intent & Quote-Compare Agent",
             "type": "ai_tool",
             "index": 0
           }
@@ -1011,62 +1002,11 @@
       "main": [
         [
           {
-            "node": "Dummy Firebase Workers Data1",
+            "node": "Fetch Businesses",
             "type": "main",
             "index": 0
           }
         ],
-        [
-          {
-            "node": "Respond to Webhook1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Dummy Firebase Workers Data1": {
-      "main": [
-        [
-          {
-            "node": "Route: New-Quote or Compare Result?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Query Firestore Workers1": {
-      "main": [
-        [
-          {
-            "node": "Route: New-Quote or Compare Result?",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Route: New-Quote or Compare Result?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Rank and Format Top ": {
-      "main": [
-        [
-          {
-            "node": "Format Result Response1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Format Result Response1": {
-      "main": [
         [
           {
             "node": "Respond to Webhook1",
@@ -1087,12 +1027,85 @@
         ]
       ]
     },
-    "OpenAI Chat Model2": {
-      "ai_languageModel": [
+    "Normalize Extracted Text": {
+      "main": [
         [
           {
-            "node": "Structured Output Parser (Compare)",
-            "type": "ai_languageModel",
+            "node": "Fencing AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Businesses": {
+      "main": [
+        [
+          {
+            "node": "Filter Businesses by Service Area",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Businesses by Service Area": {
+      "main": [
+        [
+          {
+            "node": "Any Business In Range?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Business In Range?": {
+      "main": [
+        [
+          {
+            "node": "Format No-Match Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Pricing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format No-Match Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Pricing": {
+      "main": [
+        [
+          {
+            "node": "Price & Rank Businesses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Price & Rank Businesses": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
             "index": 0
           }
         ]

@@ -1,4 +1,5 @@
 import { api } from './api'
+import type { SuburbPlace } from './places'
 
 export interface ChatOption {
   label: string
@@ -16,6 +17,10 @@ export interface ChatOption {
 export type ChecklistData = Record<string, string | number | boolean | null>
 
 export interface WorkerMatch {
+  // Firestore uid of the business. Optional only so an older workflow export degrades to a
+  // results page you can look at but not hand your details to.
+  businessId?: string
+  autoAcceptsAi?: boolean
   businessName: string
   // The customer's own suburb, spelled the way the business's service-area record does.
   // Optional only so a deployment running an older workflow export degrades to hiding the
@@ -29,6 +34,10 @@ export interface WorkerMatch {
 // One row of the compare_quote flow's "beat my existing quote" results — shape comes from
 // the n8n "Rank & Format Comparison Response" node (n8n/fencing-workflow-updated.json).
 export interface ComparisonQuote {
+  /** Firestore uid — what `matchedBusinessIds` on the job document is made of. */
+  businessId?: string
+  /** Whether this business takes leads from the assistant without reviewing them first. */
+  autoAcceptsAi?: boolean
   businessName: string
   ratePerMeter: number
   projectTotalMin: number
@@ -61,6 +70,11 @@ export interface FencingChatResponse {
   // Present once n8n's intent-router adds it to its final response nodes. Kept optional
   // since older/other branches may still omit it — routing falls back to `type` when absent.
   intent?: 'new_quote' | 'compare_quote'
+  // Which field this turn is asking for, when the answer needs more than free text. Only
+  // `suburb` today: it swaps the reply box for a Google-backed suburb picker, because a
+  // mistyped suburb doesn't fail loudly — it silently matches zero businesses. Optional, so a
+  // workflow export that doesn't send it yet just falls back to plain typing.
+  expects?: 'suburb'
   // Running checklist of collected project fields, echoed back on every message/question turn
   // (null once a `result`/`comparison_result` fires). Absent entirely on very old workflow
   // versions, hence optional.
@@ -91,6 +105,10 @@ export interface SessionContext {
   // Every checklist field already established, so the agent is told outright what not to
   // ask about instead of having to remember it.
   knownChecklist?: ChecklistData | null
+  // The confirmed Google place behind `checklist.suburb`. The agent doesn't read it — it's
+  // carried so postcode/state/coordinates/placeId reach the workflow (and later the lead
+  // record) instead of being thrown away the moment the label is sent as text.
+  place?: SuburbPlace | null
 }
 
 function serialiseKnownChecklist(checklist: ChecklistData | null | undefined) {
@@ -106,13 +124,17 @@ export async function sendFencingChatMessage(
   session?: SessionContext,
 ): Promise<FencingChatResponse> {
   const knownChecklist = serialiseKnownChecklist(session?.knownChecklist)
-  let payload: FormData | { message: string; sessionId: string; intent?: string; knownChecklist?: string }
+  const place = session?.place ? JSON.stringify(session.place) : null
+  let payload:
+    | FormData
+    | { message: string; sessionId: string; intent?: string; knownChecklist?: string; place?: string }
   if (quoteFiles && quoteFiles.length > 0) {
     payload = new FormData()
     payload.append('message', message)
     payload.append('sessionId', sessionId)
     if (session?.intent) payload.append('intent', session.intent)
     if (knownChecklist) payload.append('knownChecklist', knownChecklist)
+    if (place) payload.append('place', place)
     // All files go under the same field name in ONE request — n8n's webhook parses
     // repeated multipart fields into indexed binary keys (quoteFile0, quoteFile1, ...)
     // and its "Split Attachments by Binary Key" node processes them together in a
@@ -126,6 +148,7 @@ export async function sendFencingChatMessage(
       sessionId,
       ...(session?.intent ? { intent: session.intent } : {}),
       ...(knownChecklist ? { knownChecklist } : {}),
+      ...(place ? { place } : {}),
     }
   }
 

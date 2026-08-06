@@ -71,6 +71,20 @@ body {
   }
 }
 
+/* The results page keeps every business name behind a blur — opening the Instant Quote
+   dialog is the moment that comes off, so the reveal is the animation rather than the
+   dialog itself. Staggered per card, same de-blur idiom as `word-in`. */
+@keyframes name-reveal {
+  from {
+    opacity: 0.35;
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
 @keyframes shimmer-sweep {
   from {
     background-position: 160% 0;
