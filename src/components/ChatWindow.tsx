@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useWordReveal } from '../hooks/useWordReveal'
-import type { ChatOption, ChecklistData } from '../services/fencingChat'
+import { OTHER_OPTION_VALUE, type ChatOption, type ChecklistData } from '../services/fencingChat'
 import type { SuburbPlace, SuburbSuggestion } from '../services/places'
 import { checklistFieldLabel } from '../utils/checklist'
 import { ConfirmationCard } from './ConfirmationCard'
@@ -41,6 +41,61 @@ function CheckBadge() {
   )
 }
 
+// "Other" swaps the tiles for a box rather than sending anything: the point of the option is
+// that the real answer isn't on the row. What comes back is a normal answer, so everything
+// downstream — the collapsed chip, the checklist, the workflow — sees a plain number.
+function CustomAnswer({ disabled, onSubmit, onCancel }: { disabled: boolean; onSubmit: (metres: number) => void; onCancel: () => void }) {
+  const [value, setValue] = useState('')
+  const metres = Number(value)
+  // A fence is somewhere between a gate's width and a paddock's edge; outside that it is a typo.
+  const isUsable = Number.isFinite(metres) && metres > 0 && metres <= 1000
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (isUsable && !disabled) onSubmit(metres)
+      }}
+      className="flex flex-wrap items-center gap-2.5 animate-[card-rise_0.3s_ease-out_backwards]"
+    >
+      <label htmlFor="custom-length" className="sr-only">
+        Length in metres
+      </label>
+      <div className="flex items-center gap-2 rounded-2xl border border-[#062D27]/40 bg-white py-2.5 pr-3 pl-4 focus-within:shadow-[0_4px_20px_rgba(6,45,39,0.06)]">
+        <input
+          id="custom-length"
+          type="number"
+          inputMode="decimal"
+          min={1}
+          max={1000}
+          step="any"
+          autoFocus
+          disabled={disabled}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="27"
+          className="w-24 border-0 bg-transparent text-sm font-medium text-[#062D27] placeholder:text-gray-300 focus:outline-none"
+        />
+        <span className="text-sm text-gray-400">metres</span>
+      </div>
+      <button
+        type="submit"
+        disabled={!isUsable || disabled}
+        className="rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+      >
+        Use this
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded-2xl px-3 py-3 text-sm font-medium text-gray-500 transition-colors hover:text-[#062D27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+      >
+        Back to options
+      </button>
+    </form>
+  )
+}
+
 function OptionRow({
   message,
   disabled,
@@ -50,7 +105,18 @@ function OptionRow({
   disabled: boolean
   onSelect: (option: ChatOption) => void
 }) {
+  const [isEnteringOther, setIsEnteringOther] = useState(false)
   const answered = message.answered
+
+  if (isEnteringOther && !answered) {
+    return (
+      <CustomAnswer
+        disabled={disabled}
+        onCancel={() => setIsEnteringOther(false)}
+        onSubmit={(metres) => onSelect({ label: `${metres}m`, value: metres })}
+      />
+    )
+  }
 
   return (
     // Negative bottom margin cancels the per-tile `mb-2.5` that keeps wrapped rows apart.
@@ -66,7 +132,7 @@ function OptionRow({
             // Collapsed-away tiles are gone visually, so take them out of the accessibility
             // tree too rather than leaving five phantom buttons announced on every old turn.
             aria-hidden={!!answered && !picked}
-            onClick={() => onSelect(option)}
+            onClick={() => (String(option.value) === OTHER_OPTION_VALUE ? setIsEnteringOther(true) : onSelect(option))}
             // Unpicked tiles collapse their own width/margin to zero rather than unmounting, so
             // the picked one glides into its final place instead of the row snapping to a new layout.
             className={`relative overflow-hidden rounded-2xl border text-left transition-all duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27] ${

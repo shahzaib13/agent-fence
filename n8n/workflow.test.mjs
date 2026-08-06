@@ -347,17 +347,20 @@ describe('one checklist for both kinds of request', () => {
     expect(turn.checklist.existingPrice).toBe(4000)
   })
 
-  it('offers only the heights businesses actually publish a rate for', () => {
+  it('offers only the heights businesses publish a rate for, said in metres', () => {
     const asked = formatTurn({ type: 'message', message: '', options: [], checklist: { ...FULL_BRIEF, heightMm: null } })
 
-    expect(asked.options.map((o) => o.value)).toEqual([1200, 1500, 1800, 2100])
+    expect(asked.options.map((o) => o.label)).toEqual(['1.3m', '1.5m', '1.8m', '2.1m'])
+    // Stored in millimetres, because that is how the rates are keyed
+    expect(asked.options.map((o) => o.value)).toEqual([1300, 1500, 1800, 2100])
   })
 
-  it('asks for the length as a number rather than offering buckets to pick from', () => {
+  it('offers real lengths, never a range, and a way out for anything else', () => {
     const asked = formatTurn({ type: 'message', message: '', options: [], checklist: { ...FULL_BRIEF, lengthMeters: null } })
 
-    expect(asked.options).toEqual([])
-    expect(asked.message).toMatch(/how long is the fence, in metres/i)
+    expect(asked.options.map((o) => o.value)).toEqual([10, 20, 30, 40, '__other__'])
+    // Every offered value is a length the pricing can multiply, not a bucket to interpret
+    expect(asked.options.slice(0, 4).every((o) => typeof o.value === 'number')).toBe(true)
   })
 
   it('hands the picked place through to the ranking step', () => {

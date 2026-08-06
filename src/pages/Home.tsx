@@ -33,7 +33,14 @@ function buildPrefill(type: string) {
 }
 
 // A conversation being reopened from the Quotes tab, or nothing for a fresh one.
-export function Home({ initialSession }: { initialSession?: QuoteSession | null }) {
+export function Home({
+  initialSession,
+  initialView = 'result',
+}: {
+  initialSession?: QuoteSession | null
+  /** Which face of a reopened quote to show first — its result, or its conversation. */
+  initialView?: 'chat' | 'result'
+}) {
   const { user } = useAuth()
   const [stage, setStage] = useState<Stage>(initialSession ? 'chat' : 'hero')
   const [description, setDescription] = useState('')
@@ -49,6 +56,9 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
   const [checklistComplete, setChecklistComplete] = useState(false)
   // Stays put across every save, so reopening a quote doesn't keep resetting when it began.
   const startedAt = useRef(initialSession?.createdAt ?? Date.now())
+  // A finished quote has two faces and the customer picks which one they are looking at. The
+  // conversation is not a transcript: answering again from there re-runs the quote.
+  const [view, setView] = useState<'chat' | 'result'>(initialView)
   // The Google place behind the suburb the customer picked. Kept for the whole session so
   // postcode/state/coordinates ride along on every later turn, not just the one that set it.
   const [place, setPlace] = useState<SuburbPlace | null>(initialSession?.place ?? null)
@@ -134,6 +144,7 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
       // instead of leaving the UI stuck on stale state.
       if (response.intent === 'compare_quote' && response.comparison) {
         setComparison(response.comparison)
+        setView('result')
         return
       }
       // A `result` with nothing in it is the workflow explaining why — no business covers their
@@ -144,6 +155,7 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
       // intents finish on one page instead of two layouts that have to be kept in step.
       if (response.type === 'result' && response.results.length > 0) {
         setComparison(workerMatchesToComparison(response.results))
+        setView('result')
         return
       }
 
@@ -301,8 +313,16 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
 
   // Where every finished conversation lands, whichever intent it ran under (Figma: "Quote
   // Direct Comparison").
-  if (comparison) {
-    return <QuoteComparisonPage comparison={comparison} intent={intent} place={place} onBack={handleRestart} />
+  if (comparison && view === 'result') {
+    return (
+      <QuoteComparisonPage
+        comparison={comparison}
+        intent={intent}
+        place={place}
+        onBack={handleRestart}
+        onViewChat={() => setView('chat')}
+      />
+    )
   }
 
   // The thread owns the viewport: the page itself never scrolls, the message list and the
@@ -311,6 +331,22 @@ export function Home({ initialSession }: { initialSession?: QuoteSession | null 
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-[#FCFDFD]">
         <Header onNewProject={handleRestart} />
+        {/* Only after a quote exists: the way back to it, and a reminder that carrying the
+            conversation on will produce a new one. */}
+        {comparison && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#D1FAE5] bg-[#ECFDF5] px-6 py-3 sm:px-10">
+            <p className="text-sm text-[#047857]">
+              This quote is ready. Keep chatting to change it, or go back to your results.
+            </p>
+            <button
+              type="button"
+              onClick={() => setView('result')}
+              className="rounded-full bg-[#059669] px-4 py-2 text-sm font-semibold whitespace-nowrap text-white transition-transform duration-150 hover:scale-105 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#047857]"
+            >
+              View results
+            </button>
+          </div>
+        )}
         <div className="grid min-h-0 flex-1 border-t border-gray-200 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <ChatWindow
             messages={messages}

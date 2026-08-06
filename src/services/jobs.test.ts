@@ -175,7 +175,6 @@ describe('submitJob', () => {
     expect(jobId).toMatch(/^VI-\d{5}$/)
     expect(written('jobs').path).toBe(`jobs/${jobId}`)
     expect(written('jobs').data.jobId).toBe(jobId)
-    expect(written('users').data.jobId).toBe(jobId)
   })
 
   it('picks another number rather than overwriting a job that already has that id', async () => {
@@ -202,21 +201,34 @@ describe('submitJob', () => {
     expect(set).not.toHaveBeenCalled()
   })
 
-  it('gives a returning customer a second document instead of overwriting the first', async () => {
+  it('keeps one account per phone number, however many jobs they post', async () => {
     exists.mockImplementation((path) => path === 'users/923029447610')
-    const jobId = await submitJob(lead)
-    const user = written('users')
-
-    // Overwriting would quietly erase which businesses their earlier job went to
-    expect(user.path).toBe(`users/923029447610_${jobId}`)
-    expect(user.data.isAdditionalJob).toBe(true)
-  })
-
-  it('creates a first-time customer under the bare phone number, verified', async () => {
     await submitJob(lead)
     const user = written('users')
 
+    // No users/{phone}_{jobId} mirror: the job lives in jobs/, and only there
     expect(user.path).toBe('users/923029447610')
-    expect(user.data).toMatchObject({ isAdditionalJob: false, isVerified: true, createdAt: 'SERVER_TS' })
+    expect(set.mock.calls.filter(([ref]) => String(ref.path).startsWith('users'))).toHaveLength(1)
+  })
+
+  it('holds nothing job-shaped on the account, so the two can never drift', async () => {
+    await submitJob(lead)
+    const user = written('users').data
+
+    for (const jobField of ['jobId', 'matchedBusinessIds', 'isAdditionalJob', 'photoCount', 'status']) {
+      expect(user).not.toHaveProperty(jobField)
+    }
+    expect(user).toMatchObject({ type: 'user', uid: lead.uid, fullName: 'Ayesha Khan', source: 'ai_agent' })
+  })
+
+  it('creates a first-time account with a createdAt, and never resets it later', async () => {
+    await submitJob(lead)
+    expect(written('users').data).toMatchObject({ isVerified: true, createdAt: 'SERVER_TS' })
+
+    vi.clearAllMocks()
+    exists.mockImplementation((path) => path === 'users/923029447610')
+    await submitJob(lead)
+    expect(written('users').data).not.toHaveProperty('createdAt')
+    expect(written('users').data.updatedAt).toBe('SERVER_TS')
   })
 })

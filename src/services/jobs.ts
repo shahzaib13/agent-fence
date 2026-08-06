@@ -1,8 +1,8 @@
 // Writing the lead into Firestore once the phone number is verified. One batch, three kinds of
 // document, because that is what the rest of the product reads:
 //
-//   jobs/{VI-48291}                                the job itself
-//   users/{phone} or users/{phone}_{VI-48291}      the customer — a second job makes a second doc
+//   jobs/{VI-48291}                                the job itself — the only record of a job
+//   users/{phone}                                  the customer's account, one per phone number
 //   businesses/{uid}/incoming_jobs/{VI-48291}      a copy for each business that was picked,
 //   businesses/{uid}/accepted_jobs/{VI-48291}      or straight into accepted when they auto-accept
 //
@@ -132,28 +132,32 @@ export async function submitJob(lead: JobLead): Promise<string> {
   const batch = writeBatch(db)
   batch.set(jobRef, job)
 
-  // A returning customer gets a second document rather than an overwritten one: their first job
-  // is keyed by the phone number alone, every one after that by phone_jobId. Overwriting would
-  // quietly erase which businesses their earlier job went to.
-  const firstJob = !(await getDoc(doc(db, 'users', phone))).exists()
-  batch.set(doc(db, 'users', firstJob ? phone : `${phone}_${jobId}`), {
-    type: 'user',
-    uid: lead.uid,
-    fullName: lead.fullName,
-    email: lead.email,
-    phone,
-    phoneNormalized: phone,
-    ...location,
-    matchedBusinessIds,
-    jobId,
-    source: SOURCE,
-    // The number got them here, so by definition it is verified.
-    isVerified: true,
-    isAdditionalJob: !firstJob,
-    photoCount: 0,
-    createdAt: now,
-    updatedAt: now,
-  })
+  // One account per phone number, merged rather than replaced — never a second document per
+  // job. The job's own record is the only place a job lives; mirroring it under the customer
+  // produced two sources of truth that drifted, so nothing job-shaped goes in here: no jobId,
+  // no matchedBusinessIds, no isAdditionalJob. "How many jobs has this customer posted?" is a
+  // query against `jobs` on uid, which cannot fall out of step with the jobs themselves.
+  const userRef = doc(db, 'users', phone)
+  const isNewAccount = !(await getDoc(userRef)).exists()
+  batch.set(
+    userRef,
+    {
+      type: 'user',
+      uid: lead.uid,
+      fullName: lead.fullName,
+      email: lead.email,
+      phone,
+      phoneNormalized: phone,
+      ...location,
+      source: SOURCE,
+      // The number got them here, so by definition it is verified.
+      isVerified: true,
+      updatedAt: now,
+      // Only on the way in: a returning customer keeps the date they first signed up.
+      ...(isNewAccount ? { createdAt: now } : {}),
+    },
+    { merge: true },
+  )
 
   // Each picked business gets the whole job, not a pointer — their app renders the feed straight
   // out of this copy. Where it lands is the only difference: a business that takes AI leads

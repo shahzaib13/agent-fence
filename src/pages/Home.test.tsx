@@ -7,7 +7,10 @@ import { sendFencingChatMessage, type FencingChatResponse } from '../services/fe
 import { fetchSuburbPlace, searchSuburbs, type SuburbPlace } from '../services/places'
 import { Home } from './Home'
 
-vi.mock('../services/fencingChat', () => ({
+vi.mock('../services/fencingChat', async (importOriginal) => ({
+  // Only the network call is faked — the module's constants are part of the contract the chat
+  // renders against, and stubbing them by hand is how they drift.
+  ...(await importOriginal<typeof import('../services/fencingChat')>()),
   sendFencingChatMessage: vi.fn(),
 }))
 

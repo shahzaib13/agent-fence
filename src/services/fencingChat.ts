@@ -1,6 +1,13 @@
 import { api } from './api'
 import type { SuburbPlace } from './places'
 
+/**
+ * The option that means "none of these". The workflow offers it wherever a tile row cannot
+ * cover every real answer — a fence is whatever length it is — and the client answers it with a
+ * text box instead of sending this value anywhere.
+ */
+export const OTHER_OPTION_VALUE = '__other__'
+
 export interface ChatOption {
   label: string
   // The real workflow sends non-string values for most MCQ answers (e.g. `heightMm: 1800`,
