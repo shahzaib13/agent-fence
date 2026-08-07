@@ -8,7 +8,7 @@
 // screen: worst case they sign in over there, which is what happens today anyway.
 import { getAuthClient } from './firebase'
 
-const PARTNER_SITE = import.meta.env.VITE_PARTNER_SITE_URL ?? 'https://decking.web.app/app'
+const PARTNER_SITE = import.meta.env.VITE_PARTNER_SITE_URL ?? 'https://quotemy-ai.web.app/app'
 const HANDOFF_ENDPOINT = import.meta.env.VITE_HANDOFF_URL as string | undefined
 const REQUEST_TIMEOUT_MS = 8000
 
