@@ -55,7 +55,10 @@ async function stubOtpService(page: Page) {
     route.fulfill({ contentType: 'text/javascript', body: `export async function shareTranscriptInChats() {}` }),
   )
   await page.route('**/src/services/handoff.ts*', (route) =>
-    route.fulfill({ contentType: 'text/javascript', body: `export async function partnerSiteUrl() { return '/' }` }),
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `export async function partnerSiteUrl() { return '/#t=e2e-handoff-token' }`,
+    }),
   )
 }
 

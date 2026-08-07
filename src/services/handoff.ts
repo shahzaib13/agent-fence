@@ -4,45 +4,57 @@
 // per-origin storage — so the session does not travel by itself. A custom token does, minted by
 // the `createHandoff` function against the customer's own ID token.
 //
-// Every failure here degrades to a plain redirect rather than trapping anybody on our success
-// screen: worst case they sign in over there, which is what happens today anyway.
+// The partner app reads `#t=<customToken>` on load, signs in with it, then clears the hash.
+// Landing on `/app` without that fragment always ends on their login page — so this helper
+// refuses to return a bare URL. Callers surface the error and let the customer retry.
 import { getAuthClient } from './firebase'
 
-const PARTNER_SITE = import.meta.env.VITE_PARTNER_SITE_URL ?? 'https://quotemy-ai.web.app/app'
-const HANDOFF_ENDPOINT = import.meta.env.VITE_HANDOFF_URL as string | undefined
+const DEFAULT_PARTNER_SITE = 'https://quotemy-ai.web.app/app'
+const DEFAULT_HANDOFF_ENDPOINT =
+  'https://us-central1-quotemy-ai.cloudfunctions.net/createHandoff'
+
+const PARTNER_SITE =
+  (import.meta.env.VITE_PARTNER_SITE_URL as string | undefined)?.trim() || DEFAULT_PARTNER_SITE
+const HANDOFF_ENDPOINT =
+  (import.meta.env.VITE_HANDOFF_URL as string | undefined)?.trim() || DEFAULT_HANDOFF_ENDPOINT
 const REQUEST_TIMEOUT_MS = 8000
 
 /**
- * Where to send the customer next. Carries a one-time sign-in token in the URL fragment when it
- * can get one — a fragment is never sent to a server, so it stays out of access logs and out of
- * the `Referer` header on the way.
+ * Partner URL with a one-time Firebase custom token in the fragment (`#t=…`).
+ * A fragment never hits a server, so it stays out of access logs and `Referer`.
+ *
+ * Throws when the session cannot be minted — never returns `/app` without `#t=`.
  */
 export async function partnerSiteUrl(): Promise<string> {
-  if (!HANDOFF_ENDPOINT) return PARTNER_SITE
+  const auth = await getAuthClient()
+  const idToken = await auth.currentUser?.getIdToken()
+  if (!idToken) {
+    throw new Error('Sign-in expired before handoff. Verify your number again.')
+  }
 
+  let response: Response
   try {
-    const auth = await getAuthClient()
-    const idToken = await auth.currentUser?.getIdToken()
-    if (!idToken) return PARTNER_SITE
-
-    const response = await fetch(HANDOFF_ENDPOINT, {
+    response = await fetch(HANDOFF_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ idToken }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     })
-    if (!response.ok) throw new Error(`handoff returned ${response.status}`)
-
-    const { token } = (await response.json()) as { token?: string }
-    if (!token) throw new Error('handoff returned no token')
-
-    const url = new URL(PARTNER_SITE)
-    url.hash = `t=${encodeURIComponent(token)}`
-    return url.toString()
   } catch (error) {
-    // Not worth stopping for. They arrive signed out and sign in there, as they would have
-    // before any of this existed.
-    console.error('Could not hand the session over, sending them across signed out:', error)
-    return PARTNER_SITE
+    console.error('Could not reach the handoff endpoint:', error)
+    throw new Error("Couldn't reach QuoteMy to finish sign-in. Check your connection and try again.")
   }
+
+  if (!response.ok) {
+    console.error('Handoff refused:', response.status)
+    throw new Error("Couldn't open your QuoteMy session. Try again in a moment.")
+  }
+
+  const { token } = (await response.json()) as { token?: string }
+  if (!token) {
+    throw new Error('QuoteMy handoff returned no sign-in token. Try again.')
+  }
+
+  // Hash only — the decking app does not read `?t=`.
+  return `${PARTNER_SITE}#t=${encodeURIComponent(token)}`
 }

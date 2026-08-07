@@ -7,6 +7,7 @@ import { submitJob } from '../services/jobs'
 import { sendOtp, verifyOtp } from '../services/otp'
 import type { SuburbPlace } from '../services/places'
 import type { QuoteSession } from '../services/quotes'
+import { partnerSiteUrl } from '../services/handoff'
 import { InstantQuoteFlow } from './InstantQuoteFlow'
 
 // The stub service sleeps to imitate a network round trip — mocked away so the tests aren't
@@ -272,6 +273,47 @@ describe('InstantQuoteFlow', () => {
     // No congratulations screen in between — the conversation they came for is over there
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://partner.example/#t=handoff-token'))
     expect(screen.queryByRole('heading', { name: /you're all set/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps them on OTP and shows an error when handoff cannot mint #t=', async () => {
+    vi.mocked(partnerSiteUrl).mockRejectedValueOnce(
+      new Error("Couldn't open your QuoteMy session. Try again in a moment."),
+    )
+    const { user } = renderFlow()
+    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    await fillDetails(user)
+
+    const boxes = await screen.findAllByRole('textbox', { name: /^digit/i })
+    await user.click(boxes[0])
+    await user.paste('123456')
+    await user.click(screen.getByRole('button', { name: /^verify$/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn't open your quotemy session/i)
+    expect(assign).not.toHaveBeenCalled()
+    expect(screen.getByRole('group', { name: /verification code/i })).toBeInTheDocument()
+  })
+
+  it('retries only the partner handoff after the lead is already saved', async () => {
+    vi.mocked(partnerSiteUrl)
+      .mockRejectedValueOnce(new Error("Couldn't open your QuoteMy session. Try again in a moment."))
+      .mockResolvedValueOnce('https://partner.example/#t=retry-token')
+
+    const { user } = renderFlow()
+    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    await fillDetails(user)
+
+    const boxes = await screen.findAllByRole('textbox', { name: /^digit/i })
+    await user.click(boxes[0])
+    await user.paste('123456')
+    await user.click(screen.getByRole('button', { name: /^verify$/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn't open your quotemy session/i)
+    expect(submitJob).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: /^verify$/i }))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('https://partner.example/#t=retry-token'))
+    expect(submitJob).toHaveBeenCalledTimes(1)
   })
 
   it('surfaces a rejected code without leaving the step', async () => {

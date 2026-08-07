@@ -113,6 +113,9 @@ export function InstantQuoteFlow({
   const [verifiedUid, setVerifiedUid] = useState<string | null>(null)
   const [isLeaving, setIsLeaving] = useState(false)
   const [cooldown, setCooldown] = useState(0)
+  // Lead write succeeds before the partner redirect. If handoff fails, Verify retries only
+  // the token hop — not another Firestore job — so businesses do not get duplicate leads.
+  const jobSubmittedRef = useRef(false)
 
   // Deliberately NOT a top-layer modal. `showModal()` would give focus trapping and Esc for
   // free, but it also puts this above everything the browser can draw — including reCAPTCHA's
@@ -213,42 +216,46 @@ export function InstantQuoteFlow({
       const uid = verifiedUid ?? (await verifyOtp(session, digits.join('')))
       setVerifiedUid(uid)
 
-      // Rendered once and used twice: filed against the job, and posted into each business's
-      // chat. All of it is optional — every step resolves to null or does nothing on failure,
-      // and the lead still goes in. A job without its transcript beats no job at all.
-      const pdf = await buildTranscriptPdf(quoteSession)
-      const aiChatPdfUrl = pdf ? await storeTranscriptForJob(quoteSession, pdf) : null
+      if (!jobSubmittedRef.current) {
+        // Rendered once and used twice: filed against the job, and posted into each business's
+        // chat. All of it is optional — every step resolves to null or does nothing on failure,
+        // and the lead still goes in. A job without its transcript beats no job at all.
+        const pdf = await buildTranscriptPdf(quoteSession)
+        const aiChatPdfUrl = pdf ? await storeTranscriptForJob(quoteSession, pdf) : null
 
-      await submitJob({
-        fullName,
-        email,
-        phoneE164: session.phoneE164,
-        uid,
-        sessionId: quoteSession.sessionId,
-        aiChatPdfUrl,
-        place,
-        businesses: selectedQuotes.flatMap((quote) =>
-          quote.businessId ? [{ id: quote.businessId, autoAcceptsAi: quote.autoAcceptsAi === true }] : [],
-        ),
-      })
-
-      // After the lead is safe, never before: the chat is where the customer picks the
-      // conversation up on the other site, and it is the one part they will actually read.
-      if (pdf) {
-        await shareTranscriptInChats({
-          customerUid: uid,
+        await submitJob({
+          fullName,
+          email,
+          phoneE164: session.phoneE164,
+          uid,
+          sessionId: quoteSession.sessionId,
+          aiChatPdfUrl,
+          place,
           businesses: selectedQuotes.flatMap((quote) =>
-            quote.businessId ? [{ id: quote.businessId, name: quote.businessName }] : [],
+            quote.businessId ? [{ id: quote.businessId, autoAcceptsAi: quote.autoAcceptsAi === true }] : [],
           ),
-          pdf,
         })
+
+        // After the lead is safe, never before: the chat is where the customer picks the
+        // conversation up on the other site, and it is the one part they will actually read.
+        if (pdf) {
+          await shareTranscriptInChats({
+            customerUid: uid,
+            businesses: selectedQuotes.flatMap((quote) =>
+              quote.businessId ? [{ id: quote.businessId, name: quote.businessName }] : [],
+            ),
+            pdf,
+          })
+        }
+        jobSubmittedRef.current = true
       }
-      // No success screen: the businesses they picked are waiting on the other site, and a page
-      // telling them so is one more click between them and the conversation. The session travels
-      // with them, so they land signed in.
+
+      // Must include `#t=<customToken>` — bare `/app` dumps them on QuoteMy's login page.
+      const destination = await partnerSiteUrl()
       setIsLeaving(true)
-      window.location.assign(await partnerSiteUrl())
+      window.location.assign(destination)
     } catch (error) {
+      setIsLeaving(false)
       setOtpError(error instanceof Error ? error.message : "That code didn't match. Try again.")
     } finally {
       setIsVerifying(false)
