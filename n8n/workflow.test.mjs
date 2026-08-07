@@ -256,12 +256,16 @@ describe('ranking', () => {
     expect(intent).toBe('new_quote')
   })
 
-  it('labels every card with whose GST it is, so a cheaper number is never just a missing 10%', () => {
-    const exclusive = [business({ uid: 'ex' }), pricing({ gstInclusive: false })]
-    const { comparison } = rank([exclusive])
+  it('puts every price on one basis, so a cheaper number is never just a missing 10%', () => {
+    const exclusive = rank([[business({ uid: 'ex' }), pricing({ gstInclusive: false })]]).comparison.quotes[0]
+    const inclusive = rank([[business(), pricing()]]).comparison.quotes[0]
 
-    expect(comparison.quotes[0].badges).toContain('excl. GST')
-    expect(rank([[business(), pricing()]]).comparison.quotes[0].badges).toContain('incl. GST')
+    // 100/m × 20m, then the 10% the business had not added
+    expect(inclusive.projectTotalMin).toBe(2000)
+    expect(exclusive.projectTotalMin).toBe(2200)
+    // The label says what happened to the number, not just what the business publishes
+    expect(exclusive.badges).toContain('incl. GST (added)')
+    expect(inclusive.badges).toContain('incl. GST')
   })
 
   it('carries the signals a customer would actually choose on', () => {
@@ -572,5 +576,53 @@ describe('values mined from a quote document', () => {
 
     expect(turn.expects).toBe('suburb')
     expect(turn.checklistComplete).toBe(false)
+  })
+})
+
+describe('beating a quote the customer already has', () => {
+  const cheap = [business({ uid: 'cheap', businessName: 'Cheap Fences' }), pricing({ rates: { timber: { 1.8: 80 } } })]
+  const mid = [business({ uid: 'mid', businessName: 'Mid Fences' }), pricing({ rates: { timber: { 1.8: 110 } } })]
+  const dear = [business({ uid: 'dear', businessName: 'Dear Fences' }), pricing({ rates: { timber: { 1.8: 150 } } })]
+  // 20m at those rates: 1600, 2200, 3000
+  const beating = (existingPrice) => rank([cheap, mid, dear], { ...BRIEF, existingPrice })
+
+  it('shows only what actually beats their price', () => {
+    const { comparison } = beating(2500)
+
+    expect(comparison.quotes.map((quote) => quote.projectTotalMin)).toEqual([1600, 2200])
+  })
+
+  it('shows one when only one beats it, rather than padding the row', () => {
+    expect(beating(2000).comparison.quotes.map((q) => q.businessName)).toEqual(['Cheap Fences'])
+  })
+
+  it('never shows a quote at or above their price — that is the whole feature backwards', () => {
+    for (const price of [1700, 2500, 3500]) {
+      const shown = beating(price).comparison.quotes.map((quote) => quote.projectTotalMin)
+      expect(shown.every((total) => total < price)).toBe(true)
+    }
+  })
+
+  it('says nothing beat it, and what the closest was', () => {
+    const result = beating(1500)
+
+    expect(result.comparison).toBeNull()
+    expect(result.results).toEqual([])
+    expect(result.noMatchReason).toBe('notCheaper')
+    expect(result.message).toMatch(/under \$1,500/)
+    expect(result.message).toMatch(/closest was \$1,600/)
+  })
+
+  it('measures the market over everyone who could quote, not just the ones that beat it', () => {
+    // (1600 + 2200 + 3000) / 3 — averaging only the survivors would flatter the result
+    expect(beating(2500).comparison.marketAverage).toBe(2267)
+    expect(beating(2500).comparison.totalQuotesScreened).toBe(3)
+  })
+
+  it('leaves a fresh quote alone — nothing to beat, so nothing is hidden', () => {
+    const { comparison } = rank([cheap, mid, dear])
+
+    expect(comparison.quotes).toHaveLength(3)
+    expect(comparison.userExistingPrice).toBeNull()
   })
 })
