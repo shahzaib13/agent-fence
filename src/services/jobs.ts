@@ -35,6 +35,10 @@ export interface JobLead {
   place: SuburbPlace | null
   /** The businesses the customer ticked, and whether each one takes AI leads automatically. */
   businesses: { id: string; autoAcceptsAi: boolean }[]
+  /** The conversation this quote came out of, so the job can be traced back to it. */
+  sessionId: string
+  /** Where the PDF of that conversation lives. Null when it could not be produced. */
+  aiChatPdfUrl: string | null
 }
 
 /** Stored, and used as the user document's id, without the leading + — as every record does. */
@@ -124,6 +128,10 @@ export async function submitJob(lead: JobLead): Promise<string> {
     ...geoLocation,
     matchedBusinessIds,
     source: SOURCE,
+    // The conversation behind this job. The other site renders the link however it likes —
+    // producing the artefact is this side's job, deciding where it appears is not.
+    sessionId: lead.sessionId,
+    ...(lead.aiChatPdfUrl ? { aiChatPdfUrl: lead.aiChatPdfUrl } : {}),
     photoCount: 0,
     createdAt: now,
     updatedAt: now,

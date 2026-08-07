@@ -1,0 +1,193 @@
+{
+  "path": "businesses/{bizUid}/incoming_jobs/{jobId}",
+  "documentId": "jobId",
+  "note": "Job ki POORI copy + businessId. Business app ka feed isi se banta hai.",
+  "source": "conversation mein paste kiye gaye sample documents (har collection ka 1) — fill rate maloom nahi",
+  "fields": {
+    "businessId": {
+      "type": "string",
+      "example": "<bizUid>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "type": {
+      "type": "string",
+      "example": "job",
+      "aiSite": "ai-site: WRITES"
+    },
+    "status": {
+      "type": "string",
+      "example": "open",
+      "aiSite": "ai-site: WRITES"
+    },
+    "jobId": {
+      "type": "string",
+      "example": "VI-59003",
+      "aiSite": "ai-site: WRITES"
+    },
+    "jobType": {
+      "type": "string",
+      "example": "decking | fencing",
+      "aiSite": "ai-site: WRITES"
+    },
+    "category": {
+      "type": "string",
+      "example": "Decking | Fencing",
+      "aiSite": "ai-site: WRITES"
+    },
+    "title": {
+      "type": "string",
+      "example": "Deck Installation | Fence Installation",
+      "aiSite": "ai-site: WRITES"
+    },
+    "uid": {
+      "type": "string",
+      "example": "<Firebase Auth uid>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "userId": {
+      "type": "string",
+      "example": "923029447610 (phone digits)",
+      "aiSite": "ai-site: WRITES"
+    },
+    "fullName": {
+      "type": "string",
+      "example": "<name>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "email": {
+      "type": "string",
+      "example": "<email>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "phone": {
+      "type": "string",
+      "example": "923029447610 (bina + ke)",
+      "aiSite": "ai-site: WRITES"
+    },
+    "location": {
+      "type": "string",
+      "example": "Pakenham, VIC 3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.country": {
+      "type": "string",
+      "example": "AU",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.countryName": {
+      "type": "string",
+      "example": "Australia",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.displayLabel": {
+      "type": "string",
+      "example": "Pakenham, VIC 3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.formattedAddress": {
+      "type": "string",
+      "example": "Pakenham VIC 3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.latitude": {
+      "type": "double",
+      "example": -38.0776708,
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.longitude": {
+      "type": "double",
+      "example": 145.4818724,
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.name": {
+      "type": "string",
+      "example": "Pakenham",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.placeId": {
+      "type": "string",
+      "example": "ChIJxUv0xoYb1moRsOCMIXVWBAU",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.placeTypes": {
+      "type": "array<string>",
+      "example": [
+        "locality",
+        "political"
+      ],
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.postcode": {
+      "type": "string",
+      "example": "3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.state": {
+      "type": "string",
+      "example": "VIC",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.stateFullName": {
+      "type": "string",
+      "example": "Victoria",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.suburb": {
+      "type": "string",
+      "example": "Pakenham",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.geopoint": {
+      "type": "geopoint",
+      "example": "-38.0776708, 145.4818724",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.geohash": {
+      "type": "string",
+      "example": "r1prqs0tmr",
+      "aiSite": "ai-site: WRITES"
+    },
+    "matchedBusinessIds": {
+      "type": "array<string>",
+      "example": [
+        "<bizUid>"
+      ],
+      "aiSite": "ai-site: WRITES"
+    },
+    "source": {
+      "type": "string",
+      "example": "web_form | ai_agent",
+      "aiSite": "ai-site: WRITES"
+    },
+    "photoCount": {
+      "type": "int64",
+      "example": 0,
+      "aiSite": "ai-site: WRITES — hamesha 0, upload ka rasta nahi banaya"
+    },
+    "photoUrls": {
+      "type": "array<string>",
+      "example": [],
+      "aiSite": "ai-site: never writes — is flow mein photos hain hi nahi"
+    },
+    "jobDescription": {
+      "type": "string",
+      "example": "saf",
+      "aiSite": "ai-site: never writes — hamari site ye nahi poochti"
+    },
+    "timeline": {
+      "type": "string",
+      "example": "asap",
+      "aiSite": "ai-site: never writes — hamari site ye nahi poochti"
+    },
+    "createdAt": {
+      "type": "timestamp",
+      "example": "<serverTimestamp>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "updatedAt": {
+      "type": "timestamp",
+      "example": "<serverTimestamp>",
+      "aiSite": "ai-site: WRITES"
+    }
+  }
+}

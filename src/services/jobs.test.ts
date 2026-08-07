@@ -50,6 +50,8 @@ const lead: JobLead = {
     { id: 'biz-1', autoAcceptsAi: false },
     { id: 'biz-2', autoAcceptsAi: true },
   ],
+  sessionId: 'sess-1',
+  aiChatPdfUrl: 'https://storage/ai-conversation.pdf',
 }
 
 /** The document written into that collection — path and data. */

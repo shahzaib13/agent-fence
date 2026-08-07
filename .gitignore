@@ -17,6 +17,8 @@ dist-ssr
 .env.*
 # ...but the template has to reach the repo, or nobody knows the key is needed at all.
 !.env.example
+# ...and the functions one holds only allowed origins, which belong in the repo.
+!functions/.env
 
 
 # Temp files
@@ -37,3 +39,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+functions/node_modules

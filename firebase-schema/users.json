@@ -1,0 +1,176 @@
+{
+  "path": "users/{phone}",
+  "documentId": "phone digits, bina + ke — \"923029447610\"",
+  "note": "Sirf customer ka account. Cleanup ke baad isme koi job field nahi jani chahiye.",
+  "source": "conversation mein paste kiye gaye sample documents (har collection ka 1) — fill rate maloom nahi",
+  "fields": {
+    "type": {
+      "type": "string",
+      "example": "user",
+      "aiSite": "ai-site: WRITES"
+    },
+    "uid": {
+      "type": "string",
+      "example": "<Firebase Auth uid>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "fullName": {
+      "type": "string",
+      "example": "<name>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "email": {
+      "type": "string",
+      "example": "<email>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "phone": {
+      "type": "string",
+      "example": "923029447610",
+      "aiSite": "ai-site: WRITES"
+    },
+    "phoneNormalized": {
+      "type": "string",
+      "example": "923029447610",
+      "aiSite": "ai-site: WRITES"
+    },
+    "location": {
+      "type": "string",
+      "example": "Pakenham, VIC 3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.country": {
+      "type": "string",
+      "example": "AU",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.countryName": {
+      "type": "string",
+      "example": "Australia",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.displayLabel": {
+      "type": "string",
+      "example": "Pakenham, VIC 3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.formattedAddress": {
+      "type": "string",
+      "example": "Pakenham VIC 3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.latitude": {
+      "type": "double",
+      "example": -38.0776708,
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.longitude": {
+      "type": "double",
+      "example": 145.4818724,
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.name": {
+      "type": "string",
+      "example": "Pakenham",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.placeId": {
+      "type": "string",
+      "example": "ChIJxUv0xoYb1moRsOCMIXVWBAU",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.placeTypes": {
+      "type": "array<string>",
+      "example": [
+        "locality",
+        "political"
+      ],
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.postcode": {
+      "type": "string",
+      "example": "3810",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.state": {
+      "type": "string",
+      "example": "VIC",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.stateFullName": {
+      "type": "string",
+      "example": "Victoria",
+      "aiSite": "ai-site: WRITES"
+    },
+    "locationData.suburb": {
+      "type": "string",
+      "example": "Pakenham",
+      "aiSite": "ai-site: WRITES"
+    },
+    "source": {
+      "type": "string",
+      "example": "web_form | ai_agent",
+      "aiSite": "ai-site: WRITES"
+    },
+    "isVerified": {
+      "type": "boolean",
+      "example": true,
+      "aiSite": "ai-site: WRITES"
+    },
+    "createdAt": {
+      "type": "timestamp",
+      "example": "<serverTimestamp>",
+      "aiSite": "ai-site: WRITES — sirf pehli baar"
+    },
+    "updatedAt": {
+      "type": "timestamp",
+      "example": "<serverTimestamp>",
+      "aiSite": "ai-site: WRITES"
+    },
+    "jobId": {
+      "type": "string",
+      "example": "VI-59003",
+      "aiSite": "ai-site: never writes — JOB FIELD, cleanup ke baad nahi hona chahiye"
+    },
+    "isAdditionalJob": {
+      "type": "boolean",
+      "example": true,
+      "aiSite": "ai-site: never writes — mirror doc ke sath khatam"
+    },
+    "matchedBusinessIds": {
+      "type": "array<string>",
+      "example": [],
+      "aiSite": "ai-site: never writes — JOB FIELD"
+    },
+    "jobDescription": {
+      "type": "string",
+      "example": "sad",
+      "aiSite": "ai-site: never writes — JOB FIELD"
+    },
+    "timeline": {
+      "type": "string",
+      "example": "asap",
+      "aiSite": "ai-site: never writes — JOB FIELD"
+    },
+    "photoCount": {
+      "type": "int64",
+      "example": 0,
+      "aiSite": "ai-site: never writes"
+    },
+    "photoNames": {
+      "type": "array<string>",
+      "example": [],
+      "aiSite": "ai-site: never writes"
+    },
+    "photoUrls": {
+      "type": "array<string>",
+      "example": [],
+      "aiSite": "ai-site: never writes"
+    },
+    "status": {
+      "type": "string",
+      "example": "open",
+      "aiSite": "ai-site: never writes — JOB FIELD, purane screenshot mein tha"
+    }
+  }
+}

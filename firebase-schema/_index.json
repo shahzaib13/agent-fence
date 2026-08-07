@@ -1,0 +1,37 @@
+[
+  {
+    "file": "jobs.json",
+    "path": "jobs/{jobId}",
+    "fields": 35
+  },
+  {
+    "file": "users.json",
+    "path": "users/{phone}",
+    "fields": 33
+  },
+  {
+    "file": "businesses.json",
+    "path": "businesses/{bizUid}",
+    "fields": 22
+  },
+  {
+    "file": "businesses--pricing.json",
+    "path": "businesses/{bizUid}/pricing/{trade}",
+    "fields": 11
+  },
+  {
+    "file": "businesses--incoming_jobs.json",
+    "path": "businesses/{bizUid}/incoming_jobs/{jobId}",
+    "fields": 36
+  },
+  {
+    "file": "businesses--accepted_jobs.json",
+    "path": "businesses/{bizUid}/accepted_jobs/{jobId}",
+    "fields": 37
+  },
+  {
+    "file": "mail-and-messages.json",
+    "path": "mail/{id} aur messages/{id}",
+    "fields": 1
+  }
+]

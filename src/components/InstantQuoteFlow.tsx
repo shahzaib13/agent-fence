@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type InputHTMLAttributes } from 'react'
 import type { ComparisonQuote } from '../services/fencingChat'
 import { submitJob } from '../services/jobs'
+import type { QuoteSession } from '../services/quotes'
+import { partnerSiteUrl } from '../services/handoff'
+import { uploadTranscript } from '../services/transcript'
 import { OTP_LENGTH, RECAPTCHA_CONTAINER_ID, releaseVerifier, sendOtp, verifyOtp, type OtpSession } from '../services/otp'
 import type { SuburbPlace } from '../services/places'
 import { DEFAULT_COUNTRY_CODE, isValidPhone, normalisePhone } from '../utils/phone'
@@ -82,11 +85,14 @@ function TextField({
 export function InstantQuoteFlow({
   quotes,
   place,
+  quoteSession,
   onClose,
 }: {
   quotes: ComparisonQuote[]
   /** The suburb the customer picked — every field of `locationData` on the saved job. */
   place: SuburbPlace | null
+  /** The conversation this quote came from — it becomes the PDF attached to the job. */
+  quoteSession: QuoteSession
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -105,6 +111,7 @@ export function InstantQuoteFlow({
   const [otpError, setOtpError] = useState<string | null>(null)
   const [isVerifying, setIsVerifying] = useState(false)
   const [verifiedUid, setVerifiedUid] = useState<string | null>(null)
+  const [isLeaving, setIsLeaving] = useState(false)
   const [cooldown, setCooldown] = useState(0)
 
   // Native <dialog> so focus trapping, Esc, and the inert background come from the platform
@@ -197,11 +204,18 @@ export function InstantQuoteFlow({
       const uid = verifiedUid ?? (await verifyOtp(session, digits.join('')))
       setVerifiedUid(uid)
 
+      // The PDF is optional on purpose: it resolves to null if either rendering or the upload
+      // fails, and the lead still goes in. A job without its transcript is worth far more than
+      // no job at all.
+      const aiChatPdfUrl = await uploadTranscript(quoteSession)
+
       await submitJob({
         fullName,
         email,
         phoneE164: session.phoneE164,
         uid,
+        sessionId: quoteSession.sessionId,
+        aiChatPdfUrl,
         place,
         businesses: selectedQuotes.flatMap((quote) =>
           quote.businessId ? [{ id: quote.businessId, autoAcceptsAi: quote.autoAcceptsAi === true }] : [],
@@ -495,9 +509,24 @@ export function InstantQuoteFlow({
           )}
 
           {step === 'done' && (
-            <button type="button" onClick={dismiss} className={`${primaryButton} max-sm:flex-1`}>
-              Done
-            </button>
+            <>
+              <button type="button" onClick={dismiss} className={`${secondaryButton} max-sm:flex-1`}>
+                Stay here
+              </button>
+              <button
+                type="button"
+                disabled={isLeaving}
+                onClick={() => {
+                  // The session travels with them, so they land signed in and can start talking
+                  // to the businesses straight away. Worst case they arrive signed out.
+                  setIsLeaving(true)
+                  void partnerSiteUrl().then((url) => window.location.assign(url))
+                }}
+                className={`${primaryButton} max-sm:flex-1`}
+              >
+                {isLeaving ? 'Taking you there…' : 'Message the businesses'}
+              </button>
+            </>
           )}
         </div>
       </div>

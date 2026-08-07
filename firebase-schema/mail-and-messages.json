@@ -1,0 +1,13 @@
+{
+  "path": "mail/{id} aur messages/{id}",
+  "documentId": "maloom nahi",
+  "note": "Email/SMS ki queues. Schema nahi bheja gaya, aur AI site inhe bilkul nahi likhti — yani AI se aayi job par abhi koi notification nahi jata, jab tak jobs/{jobId} par Firestore trigger na lagi ho.",
+  "source": "conversation mein paste kiye gaye sample documents (har collection ka 1) — fill rate maloom nahi",
+  "fields": {
+    "<unknown>": {
+      "type": "—",
+      "example": "aap ka sample document chahiye",
+      "aiSite": "ai-site: does not touch"
+    }
+  }
+}

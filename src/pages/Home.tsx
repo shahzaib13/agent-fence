@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatWindow, type ChatMessage } from '../components/ChatWindow'
 import { ChecklistPanel } from '../components/ChecklistPanel'
 import { ComingSoonScreen } from '../components/ComingSoonScreen'
@@ -73,33 +73,38 @@ export function Home({
   // The whole conversation is one record, rewritten whenever it changes — a dozen turns is a
   // small document, and a write per message would cost a dozen times as much to store the same
   // thing. Nothing is saved until the customer has actually said something.
+  // Built once and used twice: saved as the history, and handed to the Instant Quote flow,
+  // which renders it as the PDF attached to the job. Two shapes of the same conversation would
+  // drift the moment one of them gained a field.
+  const quoteSession: QuoteSession = useMemo(
+    () => ({
+      sessionId,
+      status: comparison ? 'complete' : 'in_progress',
+      createdAt: startedAt.current,
+      updatedAt: Date.now(),
+      messages: messages.map(({ id, role, text, options, answered, answeredField, isConfirmation, checklist: turnChecklist, expects }) => ({
+        id,
+        role,
+        text,
+        options,
+        answered,
+        answeredField,
+        isConfirmation,
+        checklist: turnChecklist,
+        expects,
+      })),
+      checklist,
+      place,
+      comparison,
+      intent,
+    }),
+    [messages, checklist, place, comparison, intent, sessionId],
+  )
+
   useEffect(() => {
-    if (messages.length === 0) return
-    saveQuote(
-      {
-        sessionId,
-        status: comparison ? 'complete' : 'in_progress',
-        createdAt: startedAt.current,
-        updatedAt: Date.now(),
-        messages: messages.map(({ id, role, text, options, answered, answeredField, isConfirmation, checklist: turnChecklist, expects }) => ({
-          id,
-          role,
-          text,
-          options,
-          answered,
-          answeredField,
-          isConfirmation,
-          checklist: turnChecklist,
-          expects,
-        })),
-        checklist,
-        place,
-        comparison,
-        intent,
-      },
-      user,
-    )
-  }, [messages, checklist, place, comparison, intent, sessionId, user])
+    if (quoteSession.messages.length === 0) return
+    saveQuote(quoteSession, user)
+  }, [quoteSession, user])
 
   async function sendMessage(
     apiText: string,
@@ -366,6 +371,7 @@ export function Home({
         comparison={comparison}
         intent={intent}
         place={place}
+        quoteSession={quoteSession}
         onBack={handleRestart}
         onViewChat={() => setView('chat')}
       />

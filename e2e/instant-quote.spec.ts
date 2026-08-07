@@ -37,6 +37,15 @@ async function stubOtpService(page: Page) {
       body: `export async function submitJob() { return 'VI-12345' }`,
     }),
   )
+
+  // The transcript PDF and the hop to the partner site both reach outside the app; neither
+  // belongs in a test run, and both are covered by unit tests.
+  await page.route('**/src/services/transcript.ts*', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: `export async function uploadTranscript() { return null }` }),
+  )
+  await page.route('**/src/services/handoff.ts*', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: `export async function partnerSiteUrl() { return '/' }` }),
+  )
 }
 
 // Three matches on the first turn, so every test here starts one click away from the
@@ -116,7 +125,7 @@ test('picks businesses, hands over details, and verifies the phone number', asyn
   await expect(dialog.getByText('A Plus Fencing')).toBeVisible()
   await expect(dialog.getByText('Southeast Fencing')).toBeVisible()
 
-  await dialog.getByRole('button', { name: /done/i }).click()
+  await dialog.getByRole('button', { name: /stay here/i }).click()
   await expect(dialog).toBeHidden()
   await expect(page.getByRole('heading', { name: /your local quote comparison/i })).toBeVisible()
 })

@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { ComparisonSummary } from '../services/fencingChat'
+import type { QuoteSession } from '../services/quotes'
 import { QuoteComparisonPage } from './QuoteComparisonPage'
 
 const baseComparison: ComparisonSummary = {
@@ -51,9 +52,20 @@ const baseComparison: ComparisonSummary = {
 // Header links need a router context; these pages are always inside one in the app.
 const render = (ui: ReactElement) => renderBare(ui, { wrapper: MemoryRouter })
 
+const quoteSession: QuoteSession = {
+  sessionId: 'sess-1',
+  status: 'complete',
+  createdAt: 1_754_000_000_000,
+  updatedAt: 1_754_000_100_000,
+  messages: [{ id: 'm1', role: 'user', text: 'I need a fence' }],
+  checklist: { suburb: 'Pakenham, VIC 3810', fenceType: 'Timber' },
+  place: null,
+  comparison: null,
+}
+
 describe('QuoteComparisonPage', () => {
   it('renders the header, headline, and stat cards from the comparison summary', () => {
-    render(<QuoteComparisonPage comparison={baseComparison} intent="compare_quote" onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} intent="compare_quote" onBack={vi.fn()} />)
 
     expect(screen.getByRole('heading', { name: /quote direct comparison/i })).toBeInTheDocument()
     expect(screen.getByText('Aura')).toBeInTheDocument()
@@ -63,7 +75,7 @@ describe('QuoteComparisonPage', () => {
   })
 
   it('marks the BEST_VALUE quote and shows its savings, but marks a no-savings quote as at local average', () => {
-    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={vi.fn()} />)
 
     expect(screen.getByText(/best value choice/i)).toBeInTheDocument()
     expect(screen.getByText('Saves $1,900 from avg.')).toBeInTheDocument()
@@ -72,21 +84,21 @@ describe('QuoteComparisonPage', () => {
   })
 
   it('shows a fallback message when there are no comparable quotes', () => {
-    render(<QuoteComparisonPage comparison={{ ...baseComparison, quotes: [] }} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={{ ...baseComparison, quotes: [] }} onBack={vi.fn()} />)
 
     expect(screen.getByText(/no comparable quotes found yet/i)).toBeInTheDocument()
   })
 
   it('titles the page by intent, so a fresh quote is not called a direct comparison', () => {
-    const { rerender } = render(<QuoteComparisonPage comparison={baseComparison} intent="new_quote" onBack={vi.fn()} />)
+    const { rerender } = render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} intent="new_quote" onBack={vi.fn()} />)
     expect(screen.getByRole('heading', { name: /your local quote comparison/i })).toBeInTheDocument()
 
-    rerender(<QuoteComparisonPage comparison={baseComparison} intent="compare_quote" onBack={vi.fn()} />)
+    rerender(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} intent="compare_quote" onBack={vi.fn()} />)
     expect(screen.getByRole('heading', { name: /quote direct comparison/i })).toBeInTheDocument()
   })
 
   it('hides every business name behind a blur and announces it as hidden', () => {
-    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={vi.fn()} />)
 
     const name = screen.getByText('Modern Decks NSW')
     expect(name).toHaveAttribute('aria-hidden', 'true')
@@ -97,7 +109,7 @@ describe('QuoteComparisonPage', () => {
   })
 
   it('shows neither a lead time nor a proceed button', () => {
-    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={vi.fn()} />)
 
     expect(screen.queryByText(/lead time/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /proceed/i })).not.toBeInTheDocument()
@@ -105,7 +117,7 @@ describe('QuoteComparisonPage', () => {
 
   it('collapses a single-figure estimate instead of printing the same number twice', () => {
     const flat = { ...baseComparison.quotes[0], projectTotalMin: 7200, projectTotalMax: 7200 }
-    render(<QuoteComparisonPage comparison={{ ...baseComparison, quotes: [flat] }} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={{ ...baseComparison, quotes: [flat] }} onBack={vi.fn()} />)
 
     expect(screen.getByText('$7,200')).toBeInTheDocument()
     expect(screen.queryByText('$7,200 - $7,200')).not.toBeInTheDocument()
@@ -113,7 +125,7 @@ describe('QuoteComparisonPage', () => {
 
   it('opens the instant quote dialog with the names revealed, and cancelling returns to the page intact', async () => {
     const user = userEvent.setup()
-    render(<QuoteComparisonPage comparison={baseComparison} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: /instant quote/i }))
     const dialog = await screen.findByRole('dialog')
@@ -127,7 +139,7 @@ describe('QuoteComparisonPage', () => {
   })
 
   it('offers no instant quote when there is nothing to quote on', () => {
-    render(<QuoteComparisonPage comparison={{ ...baseComparison, quotes: [] }} onBack={vi.fn()} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={{ ...baseComparison, quotes: [] }} onBack={vi.fn()} />)
 
     expect(screen.queryByRole('button', { name: /instant quote/i })).not.toBeInTheDocument()
   })
@@ -135,7 +147,7 @@ describe('QuoteComparisonPage', () => {
   it('calls onBack when the back button is clicked', async () => {
     const user = userEvent.setup()
     const onBack = vi.fn()
-    render(<QuoteComparisonPage comparison={baseComparison} onBack={onBack} />)
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={onBack} />)
 
     await user.click(screen.getByRole('button', { name: /^back$/i }))
     expect(onBack).toHaveBeenCalledTimes(1)

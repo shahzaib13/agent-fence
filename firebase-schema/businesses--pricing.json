@@ -1,0 +1,65 @@
+{
+  "path": "businesses/{bizUid}/pricing/{trade}",
+  "documentId": "trade ka naam — \"fencing\"",
+  "note": "Quote ki poori qeemat yahin se banti hai.",
+  "source": "conversation mein paste kiye gaye sample documents (har collection ka 1) — fill rate maloom nahi",
+  "fields": {
+    "trade": {
+      "type": "string",
+      "example": "fencing",
+      "aiSite": "ai-site: reads only"
+    },
+    "currency": {
+      "type": "string",
+      "example": "AUD",
+      "aiSite": "ai-site: reads only"
+    },
+    "isComplete": {
+      "type": "boolean",
+      "example": true,
+      "aiSite": "ai-site: reads only — false ho to wo business quote nahi karta"
+    },
+    "gstInclusive": {
+      "type": "boolean",
+      "example": true,
+      "aiSite": "ai-site: reads only — card pe incl./excl. GST badge"
+    },
+    "minimumCharge": {
+      "type": "int64",
+      "example": 1500,
+      "aiSite": "ai-site: reads only — total ka farsh"
+    },
+    "enabledTypes": {
+      "type": "array<string>",
+      "example": [
+        "timber"
+      ],
+      "aiSite": "ai-site: reads only — fenceType isi se match hota hai"
+    },
+    "rates": {
+      "type": "map",
+      "example": "{ timber: { \"1.2\": 20, \"1.5\": 60, \"1.8\": 100, \"2.1\": 140 } }",
+      "aiSite": "ai-site: reads only — rates[type][height] = per metre"
+    },
+    "removal.offered": {
+      "type": "boolean",
+      "example": true,
+      "aiSite": "ai-site: reads only"
+    },
+    "removal.easy": {
+      "type": "int64",
+      "example": 25,
+      "aiSite": "ai-site: reads only — per metre"
+    },
+    "removal.difficult": {
+      "type": "int64",
+      "example": 50,
+      "aiSite": "ai-site: reads only — per metre"
+    },
+    "updatedAt": {
+      "type": "timestamp",
+      "example": "<serverTimestamp>",
+      "aiSite": "ai-site: does not touch"
+    }
+  }
+}

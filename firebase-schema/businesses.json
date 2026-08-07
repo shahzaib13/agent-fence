@@ -1,0 +1,122 @@
+{
+  "path": "businesses/{bizUid}",
+  "documentId": "business ka Firebase Auth uid",
+  "note": "AI site sirf parhti hai, n8n ke zariye. Kabhi likhti nahi.",
+  "source": "conversation mein paste kiye gaye sample documents (har collection ka 1) — fill rate maloom nahi",
+  "fields": {
+    "uid": {
+      "type": "string",
+      "example": "<bizUid>",
+      "aiSite": "ai-site: reads only"
+    },
+    "businessName": {
+      "type": "string",
+      "example": "Modi",
+      "aiSite": "ai-site: reads only"
+    },
+    "abn": {
+      "type": "string",
+      "example": "231",
+      "aiSite": "ai-site: reads only"
+    },
+    "email": {
+      "type": "string",
+      "example": "<email>",
+      "aiSite": "ai-site: reads only"
+    },
+    "phone": {
+      "type": "string",
+      "example": "3093293",
+      "aiSite": "ai-site: reads only"
+    },
+    "countryCode": {
+      "type": "string",
+      "example": "+92",
+      "aiSite": "ai-site: reads only"
+    },
+    "description": {
+      "type": "string",
+      "example": "…",
+      "aiSite": "ai-site: reads only"
+    },
+    "logoUrl": {
+      "type": "null | string",
+      "example": null,
+      "aiSite": "ai-site: reads only"
+    },
+    "rating": {
+      "type": "double",
+      "example": 3.9,
+      "aiSite": "ai-site: reads only — card ka badge banta hai"
+    },
+    "reviewCount": {
+      "type": "int64",
+      "example": 54,
+      "aiSite": "ai-site: reads only — card ka badge banta hai"
+    },
+    "isAutoAcceptEnabled": {
+      "type": "boolean",
+      "example": true,
+      "aiSite": "ai-site: does not touch — ye web_form flow ke liye hai"
+    },
+    "isAiAutoAcceptEnabled": {
+      "type": "boolean",
+      "example": true,
+      "aiSite": "ai-site: reads only — YAHI hamara flow dekhta hai"
+    },
+    "services_provided": {
+      "type": "array<string>",
+      "example": [
+        "fencing",
+        "retaining-wall",
+        "decking"
+      ],
+      "aiSite": "ai-site: reads only — pehla filter"
+    },
+    "serviceArea.id": {
+      "type": "string",
+      "example": "ChIJxUv0xoYb1moRsOCMIXVWBAU",
+      "aiSite": "ai-site: reads only — SUBURB MATCH isi par hota hai"
+    },
+    "serviceArea.name": {
+      "type": "string",
+      "example": "Pakenham",
+      "aiSite": "ai-site: reads only — fallback jab id na ho"
+    },
+    "serviceArea.latitude": {
+      "type": "double",
+      "example": -38.0776708,
+      "aiSite": "ai-site: reads only"
+    },
+    "serviceArea.longitude": {
+      "type": "double",
+      "example": 145.4818724,
+      "aiSite": "ai-site: reads only"
+    },
+    "serviceArea.radiusMeters": {
+      "type": "int64",
+      "example": 25000,
+      "aiSite": "ai-site: reads only — doosra filter"
+    },
+    "serviceArea.address": {
+      "type": "string",
+      "example": "Pakenham VIC 3810, Australia",
+      "aiSite": "ai-site: does not touch"
+    },
+    "serviceArea.geohash": {
+      "type": "string",
+      "example": "r1prqs0tmrdw",
+      "aiSite": "ai-site: does not touch — mobile app ki geo-query ke liye"
+    },
+    "serviceArea.geopoint": {
+      "type": "geopoint",
+      "example": "…",
+      "aiSite": "ai-site: does not touch — hum latitude/longitude parhte hain"
+    },
+    "createdAt": {
+      "type": "timestamp",
+      "example": "<serverTimestamp>",
+      "aiSite": "ai-site: does not touch"
+    }
+  }
+}

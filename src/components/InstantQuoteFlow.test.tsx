@@ -2,9 +2,11 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComparisonQuote } from '../services/fencingChat'
+import { partnerSiteUrl } from '../services/handoff'
 import { submitJob } from '../services/jobs'
 import { sendOtp, verifyOtp } from '../services/otp'
 import type { SuburbPlace } from '../services/places'
+import type { QuoteSession } from '../services/quotes'
 import { InstantQuoteFlow } from './InstantQuoteFlow'
 
 // The stub service sleeps to imitate a network round trip — mocked away so the tests aren't
@@ -18,6 +20,26 @@ vi.mock('../services/otp', async (importOriginal) => ({
 // Verifying now also writes the lead. Firestore stays out of it here; jobs.test.ts covers the
 // document that gets built.
 vi.mock('../services/jobs', () => ({ submitJob: vi.fn(async () => 'VI-12345') }))
+// The PDF is rendered and uploaded for real elsewhere; here it is just a URL.
+vi.mock('../services/transcript', () => ({ uploadTranscript: vi.fn(async () => 'https://storage/ai.pdf') }))
+// Leaving for the partner site is a real navigation; here it is just a recorded call.
+vi.mock('../services/handoff', () => ({
+  partnerSiteUrl: vi.fn(async () => 'https://partner.example/#t=handoff-token'),
+}))
+const assign = vi.fn()
+vi.stubGlobal('location', { assign })
+
+const quoteSession: QuoteSession = {
+  sessionId: 'sess-1',
+  status: 'complete',
+  createdAt: 1_754_000_000_000,
+  updatedAt: 1_754_000_100_000,
+  messages: [{ id: 'm1', role: 'user', text: 'I need a fence' }],
+  checklist: { suburb: 'Pakenham, VIC 3810', fenceType: 'Timber' },
+  place: null,
+  comparison: null,
+}
+
 
 const pakenham: SuburbPlace = {
   suburb: 'Pakenham',
@@ -70,7 +92,7 @@ const quotes: ComparisonQuote[] = [
 ]
 
 function renderFlow(onClose = vi.fn()) {
-  render(<InstantQuoteFlow quotes={quotes} place={pakenham} onClose={onClose} />)
+  render(<InstantQuoteFlow quotes={quotes} place={pakenham} quoteSession={quoteSession} onClose={onClose} />)
   return { user: userEvent.setup(), onClose }
 }
 
@@ -220,6 +242,8 @@ describe('InstantQuoteFlow', () => {
       phoneE164: '+923029447610',
       uid: 'firebase-uid',
       place: pakenham,
+      sessionId: 'sess-1',
+      aiChatPdfUrl: 'https://storage/ai.pdf',
       // Each one carries its own AI auto-accept toggle, which decides where its copy lands
       businesses: [
         { id: 'biz-1', autoAcceptsAi: false },
@@ -229,8 +253,28 @@ describe('InstantQuoteFlow', () => {
     const list = screen.getByRole('list')
     expect(within(list).getAllByRole('listitem')).toHaveLength(2)
 
-    await user.click(screen.getByRole('button', { name: /done/i }))
+    // The success step's job is the handover; staying put is the quieter of the two ways out
+    await user.click(screen.getByRole('button', { name: /stay here/i }))
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+
+  it('offers the way over to the partner site, carrying the session', async () => {
+    const { user } = renderFlow()
+    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+    await fillDetails(user)
+
+    const boxes = await screen.findAllByRole('textbox', { name: /^digit/i })
+    await user.click(boxes[0])
+    await user.paste('123456')
+    await user.click(screen.getByRole('button', { name: /^verify$/i }))
+    await screen.findByRole('heading', { name: /you're all set/i })
+
+    const leave = screen.getByRole('button', { name: /message the businesses/i })
+    await user.click(leave)
+
+    await waitFor(() => expect(partnerSiteUrl).toHaveBeenCalled())
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('https://partner.example/#t=handoff-token'))
   })
 
   it('surfaces a rejected code without leaving the step', async () => {
