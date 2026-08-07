@@ -1,0 +1,11 @@
+{
+  "name": "agent-fence-functions",
+  "description": "One HTTPS function: hands a signed-in customer over to the partner site.",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.6.0"
+  },
+  "private": true
+}
