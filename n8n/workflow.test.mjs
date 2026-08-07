@@ -511,3 +511,66 @@ describe('a suburb is only real once Google has confirmed it', () => {
     expect(asked.message).toMatch(/which suburb/i)
   })
 })
+
+describe('values mined from a quote document', () => {
+  // Straight off the customer's real PDF: "Install 25m of 1.8H standard timber fence paling
+  // fence", "Disposal of 25m of old fence", "Total $3,309.90".
+  const fromDocument = (overrides) =>
+    formatTurn({
+      type: 'message',
+      message: 'Got it, that all came through.',
+      options: [],
+      checklist: { ...FULL_BRIEF, ...overrides },
+    }).checklist
+
+  it('reads a price the way a document writes it', () => {
+    expect(fromDocument({ existingPrice: '$3,309.90' }).existingPrice).toBe(3309.9)
+    expect(fromDocument({ existingPrice: '3309.90' }).existingPrice).toBe(3309.9)
+    expect(fromDocument({ existingPrice: 3309.9 }).existingPrice).toBe(3309.9)
+  })
+
+  it('reads a length and a height with their units still attached', () => {
+    expect(fromDocument({ lengthMeters: '25m' }).lengthMeters).toBe(25)
+    expect(fromDocument({ heightMm: '1800mm' }).heightMm).toBe(1800)
+    // "1.8H" on the page is 1.8 metres, and the existing unit guard turns that into millimetres
+    expect(fromDocument({ heightMm: '1.8H' }).heightMm).toBe(1800)
+  })
+
+  it('drops a value that holds no number rather than pricing off it', () => {
+    // Left as-is it reads as answered and quotes nobody, with nothing to explain why
+    expect(fromDocument({ existingPrice: 'see attached' }).existingPrice).toBeNull()
+    expect(fromDocument({ lengthMeters: 'TBC' }).lengthMeters).toBeNull()
+  })
+
+  it('snaps a fence described in trade words onto an option businesses actually publish', () => {
+    const typed = (value) => fromDocument({ fenceType: value }).fenceType
+
+    expect(typed('standard timber fence paling')).toBe('Timber')
+    expect(typed('treated pine palings')).toBe('Timber')
+    expect(typed('Colourbond infill')).toBe('Colorbond')
+    expect(typed('glass pool fence')).toBe('Pool Fencing')
+    expect(typed('chain wire')).toBe('Security/Chainmesh')
+    expect(typed('aluminium slat')).toBe('Aluminium')
+    expect(typed('post and wire')).toBe('Rural')
+  })
+
+  it('leaves an exact answer exactly as it is', () => {
+    expect(fromDocument({ fenceType: 'Colorbond' }).fenceType).toBe('Colorbond')
+    expect(fromDocument({ fenceType: 'timber' }).fenceType).toBe('Timber')
+  })
+
+  it('leaves words it cannot place alone rather than guessing a fence type', () => {
+    // Ranking will find nobody and say so — better than quoting the wrong kind of fence
+    expect(fromDocument({ fenceType: 'bamboo screening' }).fenceType).toBe('bamboo screening')
+  })
+
+  it('does not touch the suburb — that still only comes from the map', () => {
+    const turn = formatTurn(
+      { type: 'message', message: 'x', options: [], checklist: { ...FULL_BRIEF, suburb: '12 Smith St, Pakenham VIC' } },
+      { place: '' },
+    )
+
+    expect(turn.expects).toBe('suburb')
+    expect(turn.checklistComplete).toBe(false)
+  })
+})
