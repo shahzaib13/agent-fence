@@ -95,7 +95,7 @@ export function InstantQuoteFlow({
   quoteSession: QuoteSession
   onClose: () => void
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const [step, setStep] = useState<Step>('select')
   const [selected, setSelected] = useState<string[]>([])
   const selectedQuotes = quotes.filter((quote) => selected.includes(quote.businessName))
@@ -114,17 +114,27 @@ export function InstantQuoteFlow({
   const [isLeaving, setIsLeaving] = useState(false)
   const [cooldown, setCooldown] = useState(0)
 
-  // Native <dialog> so focus trapping, Esc, and the inert background come from the platform
-  // rather than from us reimplementing them.
+  // Deliberately NOT a top-layer modal. `showModal()` would give focus trapping and Esc for
+  // free, but it also puts this above everything the browser can draw — including reCAPTCHA's
+  // challenge, which Google appends to <body>. A customer who got challenged could see the
+  // puzzle behind this panel and never reach it, which ends the signup. An ordinary overlay
+  // loses the free focus trap and wins a flow that always completes.
   useEffect(() => {
-    dialogRef.current?.showModal()
     const { overflow } = document.body.style
     document.body.style.overflow = 'hidden'
+    // Focus moves in so the keyboard starts inside the panel, and Esc is caught on the window
+    // rather than the panel — otherwise it only works while something in here is focused.
+    panelRef.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
     return () => {
+      window.removeEventListener('keydown', onKey)
       document.body.style.overflow = overflow
       releaseVerifier()
     }
-  }, [])
+  }, [onClose])
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -136,7 +146,6 @@ export function InstantQuoteFlow({
   // reliably deliver that one (it doesn't bubble), which left the dialog closed but still
   // mounted, so it could never be reopened.
   const dismiss = () => {
-    dialogRef.current?.close()
     onClose()
   }
 
@@ -257,19 +266,17 @@ export function InstantQuoteFlow({
     'rounded-lg px-2 py-1 text-sm font-semibold text-[#047857] transition-colors hover:text-[#065F46] disabled:cursor-not-allowed disabled:text-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]'
 
   return (
-    <dialog
-      ref={dialogRef}
-      // Esc is handled here too, for the same reason — and so it always exits through the
-      // one close path rather than the browser's.
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape') return
-        event.preventDefault()
-        dismiss()
-      }}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#062D27]/45 backdrop-blur-[2px] max-sm:p-0 sm:p-4"
+      role="presentation"
+    >
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
       aria-labelledby="instant-quote-title"
-      // `m-auto` is what centres a modal dialog — Tailwind's preflight zeroes the margin the
-      // browser sets for that, so it has to be asked for explicitly.
-      className="m-auto w-full max-w-2xl overflow-hidden rounded-3xl border-0 bg-white p-0 shadow-[0_25px_50px_-12px_rgba(6,45,39,0.35)] backdrop:bg-[#062D27]/45 backdrop:backdrop-blur-[2px] max-sm:m-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none"
+      className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-[0_25px_50px_-12px_rgba(6,45,39,0.35)] max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none"
     >
       <div className="flex max-h-[85vh] flex-col max-sm:h-full max-sm:max-h-none">
         <div className="flex items-start gap-3 px-5 pt-5 sm:px-8 sm:pt-6">
@@ -505,6 +512,7 @@ export function InstantQuoteFlow({
 
         </div>
       </div>
-    </dialog>
+    </div>
+    </div>
   )
 }

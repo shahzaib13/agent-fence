@@ -10,7 +10,7 @@ import { OtpInput } from './OtpInput'
 const RESEND_COOLDOWN_SECONDS = 30
 
 export function SignInDialog({ onClose }: { onClose: () => void }) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const [phone, setPhone] = useState('')
   const [session, setSession] = useState<OtpSession | null>(null)
   const [digits, setDigits] = useState<string[]>(() => Array<string>(OTP_LENGTH).fill(''))
@@ -18,10 +18,20 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
   const [isBusy, setIsBusy] = useState(false)
   const [cooldown, setCooldown] = useState(0)
 
+  // An ordinary overlay, not a top-layer modal: `showModal()` draws above everything the
+  // browser can, including the reCAPTCHA challenge Google appends to <body>. Somebody who
+  // gets challenged would see the puzzle stuck behind this panel and never sign in.
   useEffect(() => {
-    dialogRef.current?.showModal()
-    return releaseVerifier
-  }, [])
+    panelRef.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      releaseVerifier()
+    }
+  }, [onClose])
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -30,7 +40,6 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
   }, [cooldown])
 
   const dismiss = () => {
-    dialogRef.current?.close()
     onClose()
   }
 
@@ -79,14 +88,17 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
   const codeComplete = digits.every((digit) => digit !== '')
 
   return (
-    <dialog
-      ref={dialogRef}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#062D27]/40 max-sm:p-0 sm:p-4"
+      role="presentation"
+    >
+    <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
       aria-labelledby="sign-in-title"
-      onCancel={(event) => {
-        event.preventDefault()
-        dismiss()
-      }}
-      className="m-auto w-full max-w-md rounded-3xl p-0 backdrop:bg-[#062D27]/40 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none"
+      className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-[0_25px_50px_-12px_rgba(6,45,39,0.35)] max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none"
     >
       <div className="flex h-full flex-col">
         <header className="flex items-center gap-3 border-b border-gray-100 px-5 py-4 sm:px-7">
@@ -178,6 +190,7 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
         {/* Firebase's invisible reCAPTCHA needs a container in the DOM before the code is asked for. */}
         <div id={RECAPTCHA_CONTAINER_ID} />
       </div>
-    </dialog>
+    </div>
+    </div>
   )
 }
