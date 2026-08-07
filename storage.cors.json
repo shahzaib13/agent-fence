@@ -1,0 +1,14 @@
+[
+  {
+    "origin": ["https://agent-fence.vercel.app", "http://localhost:5173"],
+    "method": ["GET", "HEAD", "PUT", "POST"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Disposition",
+      "Content-Length",
+      "Authorization",
+      "x-goog-resumable"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

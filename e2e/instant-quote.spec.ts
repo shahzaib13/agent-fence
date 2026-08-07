@@ -121,13 +121,11 @@ test('picks businesses, hands over details, and verifies the phone number', asyn
   await expect(digits.nth(5)).toHaveValue('6')
 
   await dialog.getByRole('button', { name: /^verify$/i }).click()
-  await expect(dialog.getByRole('heading', { name: /you're all set/i })).toBeVisible({ timeout: 10000 })
-  await expect(dialog.getByText('A Plus Fencing')).toBeVisible()
-  await expect(dialog.getByText('Southeast Fencing')).toBeVisible()
 
-  await dialog.getByRole('button', { name: /stay here/i }).click()
+  // Verifying is the last thing that happens here: no congratulations screen, straight over to
+  // the site where the businesses are waiting. The stub sends it back to '/'.
+  await expect(page).toHaveURL(/\/$/, { timeout: 15000 })
   await expect(dialog).toBeHidden()
-  await expect(page.getByRole('heading', { name: /your local quote comparison/i })).toBeVisible()
 })
 
 test('cancel and the cross leave the results page exactly where it was', async ({ page }) => {

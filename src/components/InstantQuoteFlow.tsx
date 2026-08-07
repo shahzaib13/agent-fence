@@ -13,7 +13,7 @@ import { QuoteCard } from './QuoteCard'
 // Choose who to contact -> hand over contact details -> verify the phone number. One dialog
 // the whole way: the results page stays mounted behind it, so cancelling at any point is an
 // unmount and nothing else — no refetch, no loading state, no lost comparison.
-type Step = 'select' | 'details' | 'otp' | 'done'
+type Step = 'select' | 'details' | 'otp'
 
 const FORM_STEPS: Step[] = ['select', 'details', 'otp']
 const RESEND_COOLDOWN_SECONDS = 30
@@ -30,7 +30,6 @@ const PANEL_LABEL: Record<Step, { title: string; caption: string }> = {
   select: { title: 'Choose who to contact', caption: 'Pick one, two, or all three' },
   details: { title: 'Where should they reach you?', caption: 'Shared only with the businesses you picked' },
   otp: { title: 'Verify your number', caption: 'So only real leads reach these businesses' },
-  done: { title: "You're all set", caption: 'Expect a call within one business day' },
 }
 
 function CloseIcon() {
@@ -141,7 +140,7 @@ export function InstantQuoteFlow({
   }
 
   // The cross always means "one step back", which on the first step is leaving altogether.
-  const backTarget: Record<Step, Step | null> = { select: null, details: 'select', otp: 'details', done: null }
+  const backTarget: Record<Step, Step | null> = { select: null, details: 'select', otp: 'details' }
   const goBack = () => {
     const target = backTarget[step]
     if (target) setStep(target)
@@ -221,7 +220,11 @@ export function InstantQuoteFlow({
           quote.businessId ? [{ id: quote.businessId, autoAcceptsAi: quote.autoAcceptsAi === true }] : [],
         ),
       })
-      setStep('done')
+      // No success screen: the businesses they picked are waiting on the other site, and a page
+      // telling them so is one more click between them and the conversation. The session travels
+      // with them, so they land signed in.
+      setIsLeaving(true)
+      window.location.assign(await partnerSiteUrl())
     } catch (error) {
       setOtpError(error instanceof Error ? error.message : "That code didn't match. Try again.")
     } finally {
@@ -430,28 +433,6 @@ export function InstantQuoteFlow({
             </form>
           )}
 
-          {step === 'done' && (
-            <div className="flex flex-col items-center gap-4 py-6 text-center">
-              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-[#ECFDF5] animate-[pop-in_0.4s_ease-out] motion-reduce:animate-none">
-                <svg viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth={3} className="h-7 w-7">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              </span>
-              <p className="max-w-sm text-base text-[#6B7280]">
-                Your number is verified. Your project brief is on its way to:
-              </p>
-              <ul className="flex w-full flex-col gap-2">
-                {selectedQuotes.map((quote) => (
-                  <li
-                    key={quote.businessName}
-                    className="rounded-2xl bg-[#F1F4F3] px-4 py-3 text-sm font-semibold text-[#062D27]"
-                  >
-                    {quote.businessName}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
 
         {/* Firebase's invisible reCAPTCHA mounts here. Outside the step branches on purpose:
@@ -500,34 +481,14 @@ export function InstantQuoteFlow({
               <button
                 type="submit"
                 form="instant-quote-otp"
-                disabled={isVerifying || digits.join('').length < OTP_LENGTH}
+                disabled={isVerifying || isLeaving || digits.join('').length < OTP_LENGTH}
                 className={`${primaryButton} max-sm:flex-1`}
               >
-                {isVerifying ? 'Verifying…' : 'Verify'}
+                {isLeaving ? 'Taking you there…' : isVerifying ? 'Verifying…' : 'Verify'}
               </button>
             </>
           )}
 
-          {step === 'done' && (
-            <>
-              <button type="button" onClick={dismiss} className={`${secondaryButton} max-sm:flex-1`}>
-                Stay here
-              </button>
-              <button
-                type="button"
-                disabled={isLeaving}
-                onClick={() => {
-                  // The session travels with them, so they land signed in and can start talking
-                  // to the businesses straight away. Worst case they arrive signed out.
-                  setIsLeaving(true)
-                  void partnerSiteUrl().then((url) => window.location.assign(url))
-                }}
-                className={`${primaryButton} max-sm:flex-1`}
-              >
-                {isLeaving ? 'Taking you there…' : 'Message the businesses'}
-              </button>
-            </>
-          )}
         </div>
       </div>
     </dialog>

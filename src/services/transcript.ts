@@ -13,6 +13,7 @@ const MARGIN = 56
 const LINE = 15
 const INK = '#062D27'
 const MUTED = '#6B7280'
+const UPLOAD_TIMEOUT_MS = 10_000
 
 /** Where a session's transcript lives. Keyed by session, so it exists before the job does. */
 const storagePath = (sessionId: string) => `transcripts/${sessionId}.pdf`
@@ -82,7 +83,12 @@ export async function uploadTranscript(session: QuoteSession): Promise<string | 
     ])
 
     const blob = buildPdf(session, jsPDF)
-    const fileRef = ref(getStorage(app), storagePath(session.sessionId))
+    const storage = getStorage(app)
+    // Firebase retries a failing upload for ten minutes by default. This one runs while the
+    // customer is looking at the last screen of the flow, and a transcript is not worth making
+    // anybody wait for — give up quickly and save the lead without it.
+    storage.maxUploadRetryTime = UPLOAD_TIMEOUT_MS
+    const fileRef = ref(storage, storagePath(session.sessionId))
     await uploadBytes(fileRef, blob, {
       contentType: 'application/pdf',
       // Named so a download lands as something recognisable rather than a uuid.

@@ -1,8 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComparisonQuote } from '../services/fencingChat'
-import { partnerSiteUrl } from '../services/handoff'
 import { submitJob } from '../services/jobs'
 import { sendOtp, verifyOtp } from '../services/otp'
 import type { SuburbPlace } from '../services/places'
@@ -220,8 +219,8 @@ describe('InstantQuoteFlow', () => {
     expect(screen.getByRole('button', { name: /^verify$/i })).toBeEnabled()
   })
 
-  it('verifies the code and lands on the confirmation with the picked businesses', async () => {
-    const { user, onClose } = renderFlow()
+  it('verifies the code, saves the lead, and takes them straight to the businesses', async () => {
+    const { user } = renderFlow()
     await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
     await user.click(screen.getByRole('checkbox', { name: /heritage decking co/i }))
     await user.click(screen.getByRole('button', { name: /continue/i }))
@@ -232,49 +231,28 @@ describe('InstantQuoteFlow', () => {
     await user.paste('123456')
     await user.click(screen.getByRole('button', { name: /^verify$/i }))
 
-    const confirmation = await screen.findByRole('heading', { name: /you're all set/i })
-    expect(confirmation).toBeInTheDocument()
     expect(verifyOtp).toHaveBeenCalledWith({ verificationId: 'test-verification', phoneE164: '+923029447610' }, '123456')
     // The lead is saved with the businesses that were actually ticked, under the verified uid
-    expect(submitJob).toHaveBeenCalledWith({
-      fullName: 'Ayesha Khan',
-      email: 'ayesha@example.com',
-      phoneE164: '+923029447610',
-      uid: 'firebase-uid',
-      place: pakenham,
-      sessionId: 'sess-1',
-      aiChatPdfUrl: 'https://storage/ai.pdf',
-      // Each one carries its own AI auto-accept toggle, which decides where its copy lands
-      businesses: [
-        { id: 'biz-1', autoAcceptsAi: false },
-        { id: 'biz-2', autoAcceptsAi: true },
-      ],
-    })
-    const list = screen.getByRole('list')
-    expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+    await waitFor(() =>
+      expect(submitJob).toHaveBeenCalledWith({
+        fullName: 'Ayesha Khan',
+        email: 'ayesha@example.com',
+        phoneE164: '+923029447610',
+        uid: 'firebase-uid',
+        place: pakenham,
+        sessionId: 'sess-1',
+        aiChatPdfUrl: 'https://storage/ai.pdf',
+        // Each one carries its own AI auto-accept toggle, which decides where its copy lands
+        businesses: [
+          { id: 'biz-1', autoAcceptsAi: false },
+          { id: 'biz-2', autoAcceptsAi: true },
+        ],
+      }),
+    )
 
-    // The success step's job is the handover; staying put is the quieter of the two ways out
-    await user.click(screen.getByRole('button', { name: /stay here/i }))
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
-  })
-
-  it('offers the way over to the partner site, carrying the session', async () => {
-    const { user } = renderFlow()
-    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
-    await user.click(screen.getByRole('button', { name: /continue/i }))
-    await fillDetails(user)
-
-    const boxes = await screen.findAllByRole('textbox', { name: /^digit/i })
-    await user.click(boxes[0])
-    await user.paste('123456')
-    await user.click(screen.getByRole('button', { name: /^verify$/i }))
-    await screen.findByRole('heading', { name: /you're all set/i })
-
-    const leave = screen.getByRole('button', { name: /message the businesses/i })
-    await user.click(leave)
-
-    await waitFor(() => expect(partnerSiteUrl).toHaveBeenCalled())
+    // No congratulations screen in between — the conversation they came for is over there
     await waitFor(() => expect(assign).toHaveBeenCalledWith('https://partner.example/#t=handoff-token'))
+    expect(screen.queryByRole('heading', { name: /you're all set/i })).not.toBeInTheDocument()
   })
 
   it('surfaces a rejected code without leaving the step', async () => {
