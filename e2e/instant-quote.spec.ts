@@ -41,7 +41,18 @@ async function stubOtpService(page: Page) {
   // The transcript PDF and the hop to the partner site both reach outside the app; neither
   // belongs in a test run, and both are covered by unit tests.
   await page.route('**/src/services/transcript.ts*', (route) =>
-    route.fulfill({ contentType: 'text/javascript', body: `export async function uploadTranscript() { return null }` }),
+    route.fulfill({
+      contentType: 'text/javascript',
+      body: `
+        export async function buildTranscriptPdf() { return null }
+        export async function storeTranscriptForJob() { return null }
+        export async function storeFile() { return null }
+      `,
+    }),
+  )
+  // Posting into the businesses' chats writes to the Realtime Database; chat.test.ts covers it.
+  await page.route('**/src/services/chat.ts*', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: `export async function shareTranscriptInChats() {}` }),
   )
   await page.route('**/src/services/handoff.ts*', (route) =>
     route.fulfill({ contentType: 'text/javascript', body: `export async function partnerSiteUrl() { return '/' }` }),

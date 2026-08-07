@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComparisonQuote } from '../services/fencingChat'
+import { shareTranscriptInChats } from '../services/chat'
 import { submitJob } from '../services/jobs'
 import { sendOtp, verifyOtp } from '../services/otp'
 import type { SuburbPlace } from '../services/places'
@@ -20,7 +21,12 @@ vi.mock('../services/otp', async (importOriginal) => ({
 // document that gets built.
 vi.mock('../services/jobs', () => ({ submitJob: vi.fn(async () => 'VI-12345') }))
 // The PDF is rendered and uploaded for real elsewhere; here it is just a URL.
-vi.mock('../services/transcript', () => ({ uploadTranscript: vi.fn(async () => 'https://storage/ai.pdf') }))
+vi.mock('../services/transcript', () => ({
+  buildTranscriptPdf: vi.fn(async () => new Blob(['pdf'], { type: 'application/pdf' })),
+  storeTranscriptForJob: vi.fn(async () => 'https://storage/ai.pdf'),
+}))
+// The chat lives in the Realtime Database on the other side; chat.test.ts covers what it writes.
+vi.mock('../services/chat', () => ({ shareTranscriptInChats: vi.fn(async () => {}) }))
 // Leaving for the partner site is a real navigation; here it is just a recorded call.
 vi.mock('../services/handoff', () => ({
   partnerSiteUrl: vi.fn(async () => 'https://partner.example/#t=handoff-token'),
@@ -248,6 +254,19 @@ describe('InstantQuoteFlow', () => {
           { id: 'biz-2', autoAcceptsAi: true },
         ],
       }),
+    )
+
+    // Every picked business gets the transcript in its own chat, under the verified uid
+    await waitFor(() =>
+      expect(shareTranscriptInChats).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customerUid: 'firebase-uid',
+          businesses: [
+            { id: 'biz-1', name: 'Modern Decks NSW' },
+            { id: 'biz-2', name: 'Heritage Decking Co.' },
+          ],
+        }),
+      ),
     )
 
     // No congratulations screen in between — the conversation they came for is over there

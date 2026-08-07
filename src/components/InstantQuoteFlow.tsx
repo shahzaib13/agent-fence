@@ -3,7 +3,8 @@ import type { ComparisonQuote } from '../services/fencingChat'
 import { submitJob } from '../services/jobs'
 import type { QuoteSession } from '../services/quotes'
 import { partnerSiteUrl } from '../services/handoff'
-import { uploadTranscript } from '../services/transcript'
+import { shareTranscriptInChats } from '../services/chat'
+import { buildTranscriptPdf, storeTranscriptForJob } from '../services/transcript'
 import { OTP_LENGTH, RECAPTCHA_CONTAINER_ID, releaseVerifier, sendOtp, verifyOtp, type OtpSession } from '../services/otp'
 import type { SuburbPlace } from '../services/places'
 import { DEFAULT_COUNTRY_CODE, isValidPhone, normalisePhone } from '../utils/phone'
@@ -203,10 +204,11 @@ export function InstantQuoteFlow({
       const uid = verifiedUid ?? (await verifyOtp(session, digits.join('')))
       setVerifiedUid(uid)
 
-      // The PDF is optional on purpose: it resolves to null if either rendering or the upload
-      // fails, and the lead still goes in. A job without its transcript is worth far more than
-      // no job at all.
-      const aiChatPdfUrl = await uploadTranscript(quoteSession)
+      // Rendered once and used twice: filed against the job, and posted into each business's
+      // chat. All of it is optional — every step resolves to null or does nothing on failure,
+      // and the lead still goes in. A job without its transcript beats no job at all.
+      const pdf = await buildTranscriptPdf(quoteSession)
+      const aiChatPdfUrl = pdf ? await storeTranscriptForJob(quoteSession, pdf) : null
 
       await submitJob({
         fullName,
@@ -220,6 +222,18 @@ export function InstantQuoteFlow({
           quote.businessId ? [{ id: quote.businessId, autoAcceptsAi: quote.autoAcceptsAi === true }] : [],
         ),
       })
+
+      // After the lead is safe, never before: the chat is where the customer picks the
+      // conversation up on the other site, and it is the one part they will actually read.
+      if (pdf) {
+        await shareTranscriptInChats({
+          customerUid: uid,
+          businesses: selectedQuotes.flatMap((quote) =>
+            quote.businessId ? [{ id: quote.businessId, name: quote.businessName }] : [],
+          ),
+          pdf,
+        })
+      }
       // No success screen: the businesses they picked are waiting on the other site, and a page
       // telling them so is one more click between them and the conversation. The session travels
       // with them, so they land signed in.

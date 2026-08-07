@@ -70,33 +70,46 @@ function buildPdf(session: QuoteSession, jsPDF: typeof import('jspdf').jsPDF) {
 }
 
 /**
- * Renders the conversation and stores it. Returns a download URL, or null if either half fails —
- * the caller must treat this as optional, because a missing PDF is worth far less than a lost
- * lead, and the lead is written in the same breath.
+ * Renders the conversation. Separate from storing it because the same file is put in more than
+ * one place: once against the job, and once in each business's chat thread.
  */
-export async function uploadTranscript(session: QuoteSession): Promise<string | null> {
+export async function buildTranscriptPdf(session: QuoteSession): Promise<Blob | null> {
   try {
-    const [{ jsPDF }, { getDownloadURL, getStorage, ref, uploadBytes }, { app }] = await Promise.all([
-      import('jspdf'),
+    const { jsPDF } = await import('jspdf')
+    return buildPdf(session, jsPDF)
+  } catch (error) {
+    console.error('Could not render the AI conversation:', error)
+    return null
+  }
+}
+
+/** Uploads a file to Storage and returns a download URL, or null if that fails. */
+export async function storeFile(path: string, blob: Blob, fileName: string): Promise<string | null> {
+  try {
+    const [{ getDownloadURL, getStorage, ref, uploadBytes }, { app }] = await Promise.all([
       import('firebase/storage'),
       import('./firebase'),
     ])
 
-    const blob = buildPdf(session, jsPDF)
     const storage = getStorage(app)
     // Firebase retries a failing upload for ten minutes by default. This one runs while the
     // customer is looking at the last screen of the flow, and a transcript is not worth making
     // anybody wait for — give up quickly and save the lead without it.
     storage.maxUploadRetryTime = UPLOAD_TIMEOUT_MS
-    const fileRef = ref(storage, storagePath(session.sessionId))
+    const fileRef = ref(storage, path)
     await uploadBytes(fileRef, blob, {
       contentType: 'application/pdf',
       // Named so a download lands as something recognisable rather than a uuid.
-      contentDisposition: `inline; filename="ai-conversation-${session.sessionId}.pdf"`,
+      contentDisposition: `inline; filename="${fileName}"`,
     })
     return await getDownloadURL(fileRef)
   } catch (error) {
-    console.error('Could not attach the AI conversation to this job:', error)
+    console.error(`Could not store ${path}:`, error)
     return null
   }
+}
+
+/** The job's own copy, kept apart from any one chat thread so it outlives all of them. */
+export async function storeTranscriptForJob(session: QuoteSession, blob: Blob) {
+  return storeFile(storagePath(session.sessionId), blob, `ai-conversation-${session.sessionId}.pdf`)
 }
