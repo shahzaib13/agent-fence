@@ -10,10 +10,28 @@ export const CARD_STEP_MS = 450
 // There's no streaming endpoint (single request/response), so this can only reflect what the LAST
 // response told us — it can't know about sub-steps mid-request, only where we land once a response
 // arrives.
+/**
+ * Whether a field still belongs on the "building your brief" list.
+ *
+ * Two of them are in the checklist without being things the brief is waiting on:
+ * `existingPrice` is never asked for — it exists only when the customer turned up with a quote
+ * of their own, and it is what makes the results a direct comparison. `siteAccess` prices the
+ * removal, so with nothing to remove there is nothing to ask. Listing either as an unticked row
+ * promises a question that is never coming, and leaves the brief looking permanently unfinished.
+ */
+export function showsInBrief(key: string, checklist: ChecklistData): boolean {
+  if (checklist[key] !== null && checklist[key] !== undefined) return true
+  if (key === 'existingPrice') return false
+  if (key === 'siteAccess' && checklist.removeOldFence === false) return false
+  return true
+}
+
 export function getActiveCardIndex(checklist: ChecklistData | null, checklistComplete: boolean, awaitingResult: boolean) {
   if (awaitingResult) return 3
   if (!checklist) return 0
-  if (Object.values(checklist).some((value) => value === null)) return 1
+  // Only fields that are actually still coming count as outstanding — otherwise a job with no
+  // old fence to remove leaves the reveal stuck on "collecting" forever.
+  if (Object.keys(checklist).some((key) => checklist[key] === null && showsInBrief(key, checklist))) return 1
   if (!checklistComplete) return 2
   return 3
 }

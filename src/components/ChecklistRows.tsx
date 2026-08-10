@@ -1,10 +1,13 @@
 import type { ChecklistData } from '../services/fencingChat'
-import { checklistFieldLabel, formatChecklistValue } from '../utils/checklist'
+import { checklistFieldLabel, formatChecklistValue, showsInBrief } from '../utils/checklist'
 
 export function ChecklistRows({ checklist }: { checklist: ChecklistData }) {
   return (
     <ul className="flex flex-col gap-4">
-      {Object.entries(checklist).map(([key, value]) => {
+      {/* An empty row is a promise that the question is still coming. Fields nobody is going to
+          ask about — an existing quote, site access with nothing to remove — drop out until they
+          actually have a value, rather than sitting there greyed out forever. */}
+      {Object.entries(checklist).filter(([key]) => showsInBrief(key, checklist)).map(([key, value]) => {
         const done = value !== null
         return (
           <li key={key} className="flex items-center gap-3">

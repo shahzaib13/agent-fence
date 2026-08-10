@@ -21,9 +21,17 @@ dist-ssr
 !functions/.env
 
 
-# Temp files
-./WORKFLOW_INTEGRATION.md
-./UI_REFERNCE_FIGMA.txt
+# Working notes, not part of the app. No leading "./" — git does not support that prefix, and
+# the two patterns that used to have it silently matched nothing, so both files ended up
+# committed anyway.
+WORKFLOW_INTEGRATION.md
+UI_REFERNCE_FIGMA.txt
+SECURITY_AUDIT.md
+SECURITY_TODOS.md
+N8N_TODOS.md
+
+# Firebase CLI deploy cache
+.firebase/
 
 # Playwright
 /test-results/

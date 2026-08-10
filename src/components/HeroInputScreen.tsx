@@ -27,6 +27,24 @@ interface Attachment {
   previewUrl: string | null
 }
 
+// The `accept` attribute is a hint to the file picker, not a rule — the dialog lets people
+// switch it off, and a drop or a paste ignores it outright. Checked here so an oversized or
+// wrong-typed file fails instantly with a sentence that explains itself, instead of thirty
+// seconds later as a generic "something went wrong" once the upload has already been attempted.
+const MAX_FILE_MB = 10
+const MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
+const MAX_FILES = 4
+
+const IS_ACCEPTED: Record<AttachmentKind, (type: string, name: string) => boolean> = {
+  image: (type) => type.startsWith('image/'),
+  video: (type) => type.startsWith('video/'),
+  // Some systems hand over an empty MIME type; the extension is the fallback rather than a
+  // flat rejection of a file that really is a PDF.
+  file: (type, name) => type === 'application/pdf' || /\.pdf$/i.test(name),
+}
+
+const KIND_LABEL: Record<AttachmentKind, string> = { image: 'an image', video: 'a video', file: 'a PDF' }
+
 // Same set of glyph paths IconButton already uses for photo/file/video, reused here
 // so a chip's icon matches whichever button attached it.
 const ATTACHMENT_KIND_ICON_PATH: Record<AttachmentKind, string> = {
@@ -76,22 +94,40 @@ export function HeroInputScreen({
   onSubmit: (quoteFiles: File[]) => void
 }) {
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  const [attachmentError, setAttachmentError] = useState<string | null>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
 
   function addFiles(fileList: FileList | null, kind: AttachmentKind) {
     if (!fileList || fileList.length === 0) return
-    const next = Array.from(fileList).map((file) => ({
+
+    const problems: string[] = []
+    const valid: File[] = []
+    for (const file of Array.from(fileList)) {
+      if (!IS_ACCEPTED[kind](file.type, file.name)) problems.push(`"${file.name}" isn't ${KIND_LABEL[kind]}.`)
+      else if (file.size > MAX_FILE_BYTES) problems.push(`"${file.name}" is over ${MAX_FILE_MB} MB.`)
+      else valid.push(file)
+    }
+
+    const room = Math.max(MAX_FILES - attachments.length, 0)
+    if (valid.length > room) problems.push(`Up to ${MAX_FILES} files can go with one description.`)
+
+    // Built out here rather than inside the state updater: createObjectURL is a side effect, and
+    // StrictMode runs updaters twice — which would leak an object URL on every attachment.
+    const added = valid.slice(0, room).map((file) => ({
       id: generateId(),
       file,
       kind,
       previewUrl: kind === 'image' ? URL.createObjectURL(file) : null,
     }))
-    setAttachments((prev) => [...prev, ...next])
+
+    if (added.length > 0) setAttachments((prev) => [...prev, ...added])
+    setAttachmentError(problems.length > 0 ? problems.join(' ') : null)
   }
 
   function removeAttachment(id: string) {
+    setAttachmentError(null)
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === id)
       if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl)
@@ -139,6 +175,11 @@ export function HeroInputScreen({
                 />
               ))}
             </div>
+          )}
+          {attachmentError && (
+            <p role="alert" className="mb-4 text-sm text-red-600">
+              {attachmentError}
+            </p>
           )}
           <input
             ref={photoInputRef}

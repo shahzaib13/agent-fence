@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   claimLocalQuotes,
+  clearLocalQuotes,
   listQuotes,
+  loadLocalQuote,
   loadLocalQuotes,
   loadQuote,
   quoteTitle,
@@ -169,6 +171,52 @@ describe('quotes', () => {
 
     it('returns nothing for a session this browser has never seen and no account to look under', async () => {
       expect(await loadQuote('unknown')).toBeNull()
+    })
+  })
+
+  // One browser, more than one customer — a family laptop, an office machine, a phone handed
+  // over at a job site. Nothing cached from the last person may reach the next one.
+  describe('ownership on a shared browser', () => {
+    const someoneElse = { uid: 'someone-else', phone: '61400000000' }
+
+    it("does not list the previous customer's conversations", async () => {
+      saveQuote(session({ sessionId: 'theirs' }), someoneElse)
+      saveQuote(session({ sessionId: 'mine' }), owner)
+      saveQuote(session({ sessionId: 'guest' }))
+      await Promise.resolve()
+
+      const listed = await listQuotes('uid-1')
+
+      expect(listed.map((s) => s.sessionId).sort()).toEqual(['guest', 'mine'])
+    })
+
+    it("refuses to open somebody else's quote from a direct URL", async () => {
+      saveQuote(session({ sessionId: 'theirs' }), someoneElse)
+      await Promise.resolve()
+
+      expect(await loadQuote('theirs', 'uid-1')).toBeNull()
+    })
+
+    it('never launders an owned quote back into an unowned one', async () => {
+      saveQuote(session({ sessionId: 'sess-1' }), owner)
+      await Promise.resolve()
+
+      // Exactly what Home does the moment somebody signs out: it rebuilds the session from
+      // component state — which carries no uid — and saves it with no owner. Without sticky
+      // ownership that write would mark the quote as a guest's, and the next person to sign in
+      // on this browser would claim it.
+      saveQuote(session({ sessionId: 'sess-1' }))
+
+      expect(loadLocalQuote('sess-1')).toMatchObject({ uid: 'uid-1' })
+      expect(await claimLocalQuotes({ uid: 'attacker', phone: '61411111111' })).toBe(0)
+    })
+
+    it('leaves nothing behind once the customer signs out', () => {
+      saveQuote(session(), owner)
+
+      clearLocalQuotes()
+
+      expect(loadLocalQuotes()).toEqual([])
     })
   })
 

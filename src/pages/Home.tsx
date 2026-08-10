@@ -55,6 +55,8 @@ export function Home({
   const [intent, setIntent] = useState<'new_quote' | 'compare_quote' | undefined>(initialSession?.intent)
   const [lastFailedText, setLastFailedText] = useState<string | null>(null)
   const [lastFailedFiles, setLastFailedFiles] = useState<File[] | null>(null)
+  // Whatever the turn currently in flight is carrying — the wait says what it's reading.
+  const [pendingFiles, setPendingFiles] = useState<File[] | null>(null)
   const [comparison, setComparison] = useState<ComparisonSummary | null>(initialSession?.comparison ?? null)
   const [isLoading, setIsLoading] = useState(false)
   const [checklist, setChecklist] = useState<ChecklistData | null>(initialSession?.checklist ?? null)
@@ -115,6 +117,7 @@ export function Home({
     confirmedPlace?: SuburbPlace | null,
   ) {
     setIsLoading(true)
+    setPendingFiles(quoteFiles ?? null)
     // Captured before the request so the response can be diffed against it — that diff is what
     // labels the answer chip the user just collapsed.
     const previousChecklist = checklist
@@ -125,6 +128,15 @@ export function Home({
     try {
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles, {
         intent,
+        // Completed exchanges, not messages: 0 means the workflow has never successfully
+        // replied, which is how it knows to ask permission rather than fire a checklist
+        // question at somebody who has not agreed to answer any.
+        //
+        // Errors are excluded deliberately. A first message that failed and is being retried is
+        // still the opening turn — counting the failure would skip the consent step on the one
+        // attempt that actually reaches the customer. A reopened conversation arrives with its
+        // saved replies already in state, so it is correctly never 0 again.
+        turn: messages.filter((m) => m.role === 'ai' && !m.isError).length,
         // A suburb with no place behind it is not established, however confident the agent was
         // when it wrote it down. Withholding it is what makes the agent ask again instead of
         // building a whole brief on a name that was never on the map.
@@ -138,7 +150,19 @@ export function Home({
       // re-runs its new_quote/compare_quote classifier on every single turn, and a flip
       // mid-conversation hands the brief to the other agent — which keeps its own, shorter
       // checklist, so it recaps early and then re-asks whatever it never collected.
-      if (response.intent && !intent) setIntent(response.intent)
+      // Locked on the first turn that declares one — a classifier re-running every turn used to
+      // flip mid-conversation and hand the brief to a different checklist, and that is still
+      // refused. The one exception is a quote to beat actually arriving, attached or finally
+      // mentioned: that is new information rather than a change of mind, it only ever moves
+      // new_quote -> compare_quote, and it is checked against the price itself rather than
+      // taken on the workflow's word.
+      // Positive, not merely present: a 0 is the workflow's model filling in a field, never a
+      // price anybody was quoted, and treating it as one flips the whole results page to a
+      // comparison against nothing.
+      const hasQuoteToBeat = Number(response.checklist?.existingPrice) > 0
+      if (response.intent && (!intent || (response.intent === 'compare_quote' && hasQuoteToBeat))) {
+        setIntent(response.intent)
+      }
       // Only overwrite when this turn actually carries a checklist — a "what should I fix?"
       // acknowledgement or similar aside may legitimately omit it. Keeping the last-known
       // checklist means the sidebar never blanks out mid-conversation.
@@ -404,6 +428,7 @@ export function Home({
           <ChatWindow
             messages={messages}
             isLoading={isLoading}
+            pendingFiles={pendingFiles}
             onSend={handleSend}
             onSelectOption={handleSelectOption}
             onSelectPlace={handleSelectPlace}

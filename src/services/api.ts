@@ -1,24 +1,15 @@
 import axios from 'axios'
 
+// Deliberately bare. There used to be a pair of interceptors here that read a bearer token out
+// of `localStorage.authToken` and attached it to every request — including the cross-origin POST
+// to the n8n webhook, which is a third party. Nothing ever wrote that key, so it never fired,
+// but it was a loaded path: the day somebody started using it, the token would have shipped off
+// to n8n on every chat turn.
+//
+// Real authentication here is Firebase, which keeps its session in IndexedDB and rotates it
+// itself. Nothing in this app should be putting credentials in localStorage. If a request ever
+// does need an identity, send the Firebase ID token on that call — do not add it globally here.
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
   timeout: 10_000,
 })
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('authToken')
-    }
-    return Promise.reject(error)
-  },
-)

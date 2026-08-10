@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ChatWindow, type ChatMessage } from './ChatWindow'
@@ -22,9 +22,12 @@ function renderWindow(messages: ChatMessage[], isLoading = false, handlers: Part
       onSelectOption={handlers.onSelectOption ?? (() => {})}
       onSelectPlace={handlers.onSelectPlace ?? (() => {})}
       onRetry={handlers.onRetry ?? (() => {})}
+      pendingFiles={handlers.pendingFiles}
     />,
   )
 }
+
+const fakeFile = (name: string, type: string) => new File(['x'], name, { type })
 
 describe('ChatWindow', () => {
   afterEach(() => {
@@ -49,6 +52,21 @@ describe('ChatWindow', () => {
     })
     expect(screen.getByText('Reading your answer')).toBeInTheDocument()
     expect(screen.queryByText('Thinking')).not.toBeInTheDocument()
+  })
+
+  it('says what it is doing with the attachments the turn is carrying', () => {
+    renderWindow([question], true, { pendingFiles: [fakeFile('quote.pdf', 'application/pdf')] })
+    expect(screen.getByText('Reading your document')).toBeInTheDocument()
+
+    cleanup()
+    renderWindow([question], true, { pendingFiles: [fakeFile('fence.jpg', 'image/jpeg')] })
+    expect(screen.getByText('Looking at your photos')).toBeInTheDocument()
+
+    cleanup()
+    renderWindow([question], true, {
+      pendingFiles: [fakeFile('quote.pdf', 'application/pdf'), fakeFile('fence.jpg', 'image/jpeg')],
+    })
+    expect(screen.getByText('Reading what you sent')).toBeInTheDocument()
   })
 
   it('renders an older turn in full straight away instead of replaying its reveal', () => {
