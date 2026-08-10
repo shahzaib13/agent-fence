@@ -286,13 +286,36 @@ function UserTurn({ text }: { text: string }) {
   )
 }
 
-const THINKING_LINES = ['Thinking', 'Reading your answer', 'Checking local pricing', 'Lining up businesses']
+// What the shimmer says while a turn is in flight. A turn carrying attachments gets its own
+// script: "Thinking" while a PDF is being read says nothing about the part actually taking
+// the time, and the wait on those turns is the long one.
+const THINKING_LINES = {
+  none: ['Thinking', 'Reading your answer', 'Checking local pricing', 'Lining up businesses'],
+  file: ['Reading your document', 'Extracting the details from it', 'Checking local pricing', 'Lining up businesses'],
+  image: ['Looking at your photos', 'Working out what they show', 'Checking local pricing', 'Lining up businesses'],
+  both: [
+    'Reading what you sent',
+    'Extracting the details from your document',
+    'Working out what your photos show',
+    'Checking local pricing',
+  ],
+}
+
+function scriptFor(files: File[] | null | undefined) {
+  const hasFile = !!files?.some((file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name))
+  const hasImage = !!files?.some((file) => file.type.startsWith('image/'))
+  if (hasFile && hasImage) return THINKING_LINES.both
+  if (hasFile) return THINKING_LINES.file
+  if (hasImage) return THINKING_LINES.image
+  return THINKING_LINES.none
+}
 
 const TICK_MS = 400
 // Ticks spent on one line before it swaps — 8 × 400ms, so the dots cycle twice per phrase.
 const TICKS_PER_LINE = 8
 
-function PendingTurn() {
+function PendingTurn({ files }: { files?: File[] | null }) {
+  const lines = scriptFor(files)
   // A stalled request reads as a broken one. One interval drives both tells: the dots cycle
   // every tick, the phrase swaps every eighth, so the bubble is never still while we wait.
   const [tick, setTick] = useState(0)
@@ -316,13 +339,13 @@ function PendingTurn() {
         >
           {/* One steady announcement for screen readers — the rotating line below is decoration
               and would otherwise re-announce itself every few seconds. */}
-          <span className="sr-only">Thinking…</span>
+          <span className="sr-only">{lines[0]}…</span>
           {/* The same sweep the shimmer bars use, clipped to the text itself. */}
           <span
             aria-hidden="true"
             className="mb-3.5 flex text-sm font-medium bg-[linear-gradient(90deg,#9CA3AF_0%,#9CA3AF_38%,#062D27_50%,#9CA3AF_62%,#9CA3AF_100%)] bg-size-[300%_100%] bg-clip-text text-transparent animate-[shimmer-sweep_2.2s_linear_infinite]"
           >
-            {THINKING_LINES[Math.floor(tick / TICKS_PER_LINE) % THINKING_LINES.length]}
+            {lines[Math.floor(tick / TICKS_PER_LINE) % lines.length]}
             {/* Fixed width so the line doesn't twitch sideways as dots come and go. */}
             <span className="w-4 shrink-0 text-left">{'.'.repeat(tick % 4)}</span>
           </span>
@@ -344,6 +367,7 @@ function PendingTurn() {
 export function ChatWindow({
   messages,
   isLoading,
+  pendingFiles,
   onSend,
   onSelectOption,
   onSelectPlace,
@@ -351,6 +375,8 @@ export function ChatWindow({
 }: {
   messages: ChatMessage[]
   isLoading: boolean
+  /** Attachments riding on the in-flight turn — they decide what the wait says it's doing. */
+  pendingFiles?: File[] | null
   onSend: (text: string) => void
   onSelectOption: (messageId: string, option: ChatOption) => void
   onSelectPlace: (messageId: string, place: SuburbPlace) => void
@@ -419,7 +445,7 @@ export function ChatWindow({
               />
             ),
           )}
-          {isLoading && <PendingTurn />}
+          {isLoading && <PendingTurn files={pendingFiles} />}
         </div>
       </div>
 

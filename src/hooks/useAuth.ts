@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getAuthClient } from '../services/firebase'
+import { clearLocalQuotes } from '../services/quotes'
 
 export interface SignedInUser {
   uid: string
@@ -44,7 +45,21 @@ export function useAuth() {
   return { user, isLoading }
 }
 
+/**
+ * Signs out and leaves nothing of this customer behind in the browser.
+ *
+ * The Firebase session is only half of what identifies somebody here — their conversations are
+ * cached in localStorage too, and on a shared machine the next person must not find them.
+ *
+ * The reload is not decoration. Every screen holding a conversation in React state re-saves it
+ * the moment `user` flips to null, and that rebuilt object carries no `uid` — so without a hard
+ * reset the quote lands straight back in the storage we just cleared, now unowned, ready for the
+ * next sign-in to claim. Dropping the whole page is the one way to be sure no stale state
+ * survives the boundary between two people.
+ */
 export async function signOutUser() {
   const [{ signOut }, auth] = await Promise.all([import('firebase/auth'), getAuthClient()])
   await signOut(auth)
+  clearLocalQuotes()
+  window.location.assign('/')
 }

@@ -3,9 +3,21 @@
 // brackets. Everything here is about getting from what they typed to E.164 without making
 // them retype it.
 
-// Pakistan for now; switch this one line to '+61' when the flow goes live in Australia —
-// the leading-zero rule is the same for both (0302… -> +92302…, 0412… -> +61412…).
-export const DEFAULT_COUNTRY_CODE = '+92'
+// Which country a local number belongs to. Set `VITE_DEFAULT_COUNTRY_CODE` and nothing here has
+// to change — that is the point: going live in Australia is an environment change, not a code
+// change, so it can happen on Vercel without a pull request.
+//
+// The fallback stays '+92' because that is where testing happens today. The leading-zero rule is
+// the same either way (0302… -> +92302…, 0412… -> +61412…), so switching is genuinely one value.
+//
+// Read at module load rather than per call: Vite inlines `import.meta.env` at build time, so
+// there is nothing dynamic to wait for, and every caller wants the same answer.
+const configured = (import.meta.env.VITE_DEFAULT_COUNTRY_CODE as string | undefined)?.trim()
+
+// A malformed value is worse than no value — it would silently prefix every number with garbage
+// and every OTP would fail with no clue why. Anything that isn't `+` followed by 1–3 digits is
+// ignored in favour of the fallback.
+export const DEFAULT_COUNTRY_CODE = configured && /^\+\d{1,3}$/.test(configured) ? configured : '+92'
 
 /**
  * Normalises a typed phone number to E.164. Returns '' for empty input; returns whatever it

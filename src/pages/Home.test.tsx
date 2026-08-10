@@ -106,7 +106,7 @@ describe('Home', () => {
 
     expect(screen.getByText('Colorbond fence, Berwick, 20m')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/ready for a few questions/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
     // the composer is always there — the user can type at any point, MCQ on screen or not
     expect(screen.getByLabelText(/your reply/i)).toBeInTheDocument()
   })
@@ -148,6 +148,47 @@ describe('Home', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Timber' })).not.toBeInTheDocument())
     // the surviving chip names the field the answer filled, worked out by diffing the checklist
     await waitFor(() => expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThan(1))
+  })
+
+  it('follows the flip when a quote to beat actually turns up, because that is new information', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      intent: 'new_quote',
+      message: 'What type of fence are you after?',
+      options: [{ label: 'Timber', value: 'Timber' }],
+      results: [],
+      avgRatePerMeter: null,
+    })
+
+    await startChat(user)
+
+    // They attach a quote, or finally mention the figure. Unlike a bare classifier flip this
+    // carries the evidence with it, so the results page is right to switch to a comparison.
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      intent: 'compare_quote',
+      message: 'Got it.',
+      options: [],
+      checklist: { suburb: null, fenceType: 'Timber', existingPrice: 4000 },
+      results: [],
+      avgRatePerMeter: null,
+    })
+    await user.click(await screen.findByRole('button', { name: 'Timber' }))
+
+    await waitFor(() => expect(mockedSend).toHaveBeenCalledTimes(2))
+    await user.type(screen.getByLabelText(/your reply/i), 'ok{Enter}')
+
+    await waitFor(() =>
+      expect(mockedSend).toHaveBeenLastCalledWith(
+        'ok',
+        expect.any(String),
+        undefined,
+        expect.objectContaining({ intent: 'compare_quote' }),
+      ),
+    )
   })
 
   it('locks the flow to the first intent n8n reports and echoes it back on every later turn', async () => {
@@ -456,7 +497,7 @@ describe('Home', () => {
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
     expect(screen.queryByText(/something went wrong on my end/i)).not.toBeInTheDocument()
-    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
   })
 
   it('shows the live checklist in the sidebar as the workflow fills it in', async () => {
@@ -634,7 +675,7 @@ describe('Home', () => {
     await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m{Enter}')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
   })
 
   it('sends any free-typed description straight to n8n, even if it never mentions fencing', async () => {
@@ -651,7 +692,7 @@ describe('Home', () => {
     await startChat(user, 'I need a medical report')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], { intent: undefined, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
   })
 
   it('answers a suburb turn from the picker and carries the whole place to the workflow', async () => {

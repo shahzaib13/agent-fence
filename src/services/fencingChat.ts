@@ -112,6 +112,16 @@ export interface SessionContext {
   // flip hands the brief to the other agent, which keeps a different checklist and so
   // recaps early and then re-asks whatever it never collected.
   intent?: 'new_quote' | 'compare_quote'
+  /**
+   * How many turns are already in the thread. `0` means this is the opening description, which
+   * is the one turn that must not be answered with a checklist question — the workflow asks
+   * permission first instead.
+   *
+   * The workflow cannot work this out for itself: an empty `knownChecklist` looks identical on
+   * turn 0 and on turn 1 when the description established nothing, which is exactly the case
+   * that would ask for consent twice. The client is the only side that knows.
+   */
+  turn?: number
   // Every checklist field already established, so the agent is told outright what not to
   // ask about instead of having to remember it.
   knownChecklist?: ChecklistData | null
@@ -135,9 +145,12 @@ export async function sendFencingChatMessage(
 ): Promise<FencingChatResponse> {
   const knownChecklist = serialiseKnownChecklist(session?.knownChecklist)
   const place = session?.place ? JSON.stringify(session.place) : null
+  // Sent even when it is 0 — 0 is the value that means something. A truthiness check here would
+  // drop exactly the turn the workflow needs to recognise.
+  const turn = session?.turn ?? null
   let payload:
     | FormData
-    | { message: string; sessionId: string; intent?: string; knownChecklist?: string; place?: string }
+    | { message: string; sessionId: string; intent?: string; knownChecklist?: string; place?: string; turn?: number }
   if (quoteFiles && quoteFiles.length > 0) {
     payload = new FormData()
     payload.append('message', message)
@@ -145,6 +158,7 @@ export async function sendFencingChatMessage(
     if (session?.intent) payload.append('intent', session.intent)
     if (knownChecklist) payload.append('knownChecklist', knownChecklist)
     if (place) payload.append('place', place)
+    if (turn !== null) payload.append('turn', String(turn))
     // All files go under the same field name in ONE request — n8n's webhook parses
     // repeated multipart fields into indexed binary keys (quoteFile0, quoteFile1, ...)
     // and its "Split Attachments by Binary Key" node processes them together in a
@@ -159,6 +173,7 @@ export async function sendFencingChatMessage(
       ...(session?.intent ? { intent: session.intent } : {}),
       ...(knownChecklist ? { knownChecklist } : {}),
       ...(place ? { place } : {}),
+      ...(turn !== null ? { turn } : {}),
     }
   }
 
@@ -166,5 +181,9 @@ export async function sendFencingChatMessage(
   if (!data || typeof data.message !== 'string' || !VALID_TYPES.includes(data.type)) {
     throw new Error(`Fencing chat webhook returned an unexpected response shape: ${JSON.stringify(data)}`)
   }
-  return data
+  // An empty string is a valid string, so the shape check above lets it through — and the thread
+  // then renders a bubble with nothing in it, which reads as the assistant having died. The
+  // workflow is meant to guarantee a message and mostly does; this is the belt to that braces,
+  // because a blank turn is the one failure the customer cannot interpret or recover from.
+  return data.message.trim() ? data : { ...data, message: 'Sorry — could you say that again?' }
 }

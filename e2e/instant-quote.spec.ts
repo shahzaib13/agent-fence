@@ -99,13 +99,13 @@ test('picks businesses, hands over details, and verifies the phone number', asyn
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
 
-  // ...and inside the dialog they are not
-  await expect(dialog.getByText('A Plus Fencing')).not.toHaveCSS('filter', /blur\((?!0)/)
+  // ...and inside the dialog they stay hidden too — picking is done on price, not on name
+  await expect(dialog.getByText('A Plus Fencing')).toHaveCSS('filter', /blur/)
 
   await expect(dialog.getByRole('button', { name: /^continue$/i })).toBeDisabled()
   await pick(dialog, 'A Plus Fencing').click()
   await pick(dialog, 'Southeast Fencing').click()
-  await expect(dialog.getByRole('checkbox', { name: /a plus fencing/i })).toBeChecked()
+  await expect(pick(dialog, 'A Plus Fencing').getByRole('checkbox')).toBeChecked()
   await dialog.getByRole('button', { name: /continue \(2\)/i }).click()
 
   await expect(dialog.getByRole('heading', { name: /where should they reach you/i })).toBeVisible()

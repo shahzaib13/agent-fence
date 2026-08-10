@@ -102,9 +102,15 @@ function renderFlow(onClose = vi.fn()) {
   return { user: userEvent.setup(), onClose }
 }
 
+/** Names are blurred on the cards, so each checkbox is labelled by its position instead. */
+function pick(businessName: string) {
+  const index = quotes.findIndex((quote) => quote.businessName === businessName)
+  return screen.getByRole('checkbox', { name: `Business ${index + 1}` })
+}
+
 /** Walks from the open dialog to the details step with the first business selected. */
 async function goToDetails(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
+  await user.click(pick('Modern Decks NSW'))
   await user.click(screen.getByRole('button', { name: /continue/i }))
 }
 
@@ -118,14 +124,14 @@ async function fillDetails(user: ReturnType<typeof userEvent.setup>, phone = '+9
 describe('InstantQuoteFlow', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('opens as a modal with every business name readable, not blurred', () => {
+  it('opens as a modal with every business name still behind a blur', () => {
     renderFlow()
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     const name = screen.getByText('Modern Decks NSW')
-    expect(name).not.toHaveAttribute('aria-hidden')
-    expect(name.className).not.toMatch(/blur-/)
-    expect(screen.queryByText('Business name hidden')).not.toBeInTheDocument()
+    expect(name).toHaveAttribute('aria-hidden', 'true')
+    expect(name.className).toMatch(/blur-/)
+    expect(screen.getAllByText('Business name hidden')).toHaveLength(quotes.length)
   })
 
   it('requires at least one business before continuing, and counts the ones picked', async () => {
@@ -133,12 +139,12 @@ describe('InstantQuoteFlow', () => {
 
     expect(screen.getByRole('button', { name: /^continue$/i })).toBeDisabled()
 
-    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
-    await user.click(screen.getByRole('checkbox', { name: /coastal timber solutions/i }))
+    await user.click(pick('Modern Decks NSW'))
+    await user.click(pick('Coastal Timber Solutions'))
     expect(screen.getByRole('button', { name: /continue \(2\)/i })).toBeEnabled()
 
     // Selection toggles off again
-    await user.click(screen.getByRole('checkbox', { name: /coastal timber solutions/i }))
+    await user.click(pick('Coastal Timber Solutions'))
     expect(screen.getByRole('button', { name: /continue \(1\)/i })).toBeEnabled()
   })
 
@@ -228,8 +234,8 @@ describe('InstantQuoteFlow', () => {
 
   it('verifies the code, saves the lead, and takes them straight to the businesses', async () => {
     const { user } = renderFlow()
-    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
-    await user.click(screen.getByRole('checkbox', { name: /heritage decking co/i }))
+    await user.click(pick('Modern Decks NSW'))
+    await user.click(pick('Heritage Decking Co.'))
     await user.click(screen.getByRole('button', { name: /continue/i }))
     await fillDetails(user)
 
@@ -280,7 +286,7 @@ describe('InstantQuoteFlow', () => {
       new Error("Couldn't open your QuoteMy session. Try again in a moment."),
     )
     const { user } = renderFlow()
-    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
+    await user.click(pick('Modern Decks NSW'))
     await user.click(screen.getByRole('button', { name: /continue/i }))
     await fillDetails(user)
 
@@ -300,7 +306,7 @@ describe('InstantQuoteFlow', () => {
       .mockResolvedValueOnce('https://partner.example/#t=retry-token')
 
     const { user } = renderFlow()
-    await user.click(screen.getByRole('checkbox', { name: /modern decks nsw/i }))
+    await user.click(pick('Modern Decks NSW'))
     await user.click(screen.getByRole('button', { name: /continue/i }))
     await fillDetails(user)
 

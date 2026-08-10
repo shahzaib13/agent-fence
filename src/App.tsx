@@ -1,5 +1,6 @@
 import { BrowserRouter, Route, Routes } from 'react-router'
 import { Home } from './pages/Home'
+import { NotFound } from './pages/NotFound'
 import { QuoteDetail } from './pages/QuoteDetail'
 import { Quotes } from './pages/Quotes'
 
@@ -12,6 +13,8 @@ function App() {
         <Route path="quotes/:sessionId" element={<QuoteDetail />} />
         {/* Same session, opened on its conversation instead of its result. */}
         <Route path="quotes/:sessionId/chat" element={<QuoteDetail view="chat" />} />
+        {/* Everything else. Must stay last — it matches any path the routes above did not. */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   )

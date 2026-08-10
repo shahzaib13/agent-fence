@@ -1,17 +1,9 @@
 import type { ComparisonQuote } from '../services/fencingChat'
 
-// One ranked business. Lives on its own because two places render it now: the results page,
-// where the business name stays hidden, and the Instant Quote modal, where committing to
-// contact them is exactly what un-hides it.
-export function QuoteCard({
-  quote,
-  revealName,
-  revealDelayMs = 0,
-}: {
-  quote: ComparisonQuote
-  revealName?: boolean
-  revealDelayMs?: number
-}) {
+// One ranked business. Lives on its own because two places render it now: the results page
+// and the Instant Quote modal. The business name stays hidden in both — the client only
+// learns who they picked once the lead is filed and they land on the partner site.
+export function QuoteCard({ quote }: { quote: ComparisonQuote }) {
   const isBestValue = quote.tag === 'BEST_VALUE'
   const hasSavings = quote.savingsFromAverage != null && quote.savingsFromAverage > 0
   const savingsLabel = hasSavings ? `Saves $${quote.savingsFromAverage!.toLocaleString()} from avg.` : 'At local average'
@@ -38,19 +30,14 @@ export function QuoteCard({
               actually compare on is still in the clear. Cosmetic only: the name is in the
               payload and the DOM, so this hides it from readers, not from anyone looking. */}
           <p
-            aria-hidden={revealName ? undefined : 'true'}
-            style={revealName ? { animationDelay: `${revealDelayMs}ms` } : undefined}
-            className={`text-xl leading-7 text-[#062D27] sm:text-2xl sm:leading-8 ${
+            aria-hidden="true"
+            className={`blur-[6px] text-xl leading-7 select-none text-[#062D27] sm:text-2xl sm:leading-8 ${
               isBestValue ? 'font-bold' : 'font-semibold'
-            } ${
-              revealName
-                ? 'animate-[name-reveal_0.55s_ease-out_backwards] motion-reduce:animate-none'
-                : 'blur-[6px] select-none'
             }`}
           >
             {quote.businessName}
           </p>
-          {!revealName && <span className="sr-only">Business name hidden</span>}
+          <span className="sr-only">Business name hidden</span>
           <p className="text-base leading-6 text-[#6B7280]">${quote.ratePerMeter}/m rate</p>
           {quote.badges.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 pt-1 sm:gap-4">

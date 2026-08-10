@@ -338,6 +338,9 @@ export function InstantQuoteFlow({
                     <input
                       type="checkbox"
                       className="peer sr-only"
+                      // The name is blurred here too, so it can't be the checkbox's label —
+                      // without this all three read as "Business name hidden".
+                      aria-label={`Business ${index + 1}`}
                       checked={isSelected}
                       onChange={() => toggle(quote.businessName)}
                     />
@@ -358,7 +361,7 @@ export function InstantQuoteFlow({
                       </svg>
                     </span>
                     <span className="min-w-0 flex-1">
-                      <QuoteCard quote={quote} revealName revealDelayMs={index * 110} />
+                      <QuoteCard quote={quote} />
                     </span>
                   </label>
                 )
