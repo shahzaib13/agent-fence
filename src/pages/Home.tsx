@@ -224,9 +224,6 @@ export function Home({
       // typing it out a second time. It is still only a head start: nothing counts until they
       // pick from Google's list.
       if (expectsSuburb && response.suggestedSuburb) void prefillSuburb(turnId, response.suggestedSuburb)
-      // A non-result reply to the final "yes" (n8n asking one more thing) drops back into the
-      // thread rather than leaving the thinking screen spinning on nothing.
-      setStage('chat')
     } catch (error) {
       console.error('Fencing chat webhook request failed:', error)
       setLastFailedText(apiText)
@@ -240,9 +237,14 @@ export function Home({
           isError: true,
         },
       ])
-      setStage('chat')
     } finally {
       setIsLoading(false)
+      // The thinking screen only ever covers the wait, so the wait ending always ends it —
+      // including the turn that produced a result, which used to return early and leave `stage`
+      // pinned on 'thinking'. Nothing showed it while `comparison` held the results page, so it
+      // sat there until "View chat" dropped through to it and span forever. One exit for every
+      // path: a reply, a result, or an error.
+      setStage('chat')
     }
   }
 
@@ -407,7 +409,7 @@ export function Home({
   if (stage === 'chat') {
     return (
       <div className="flex h-screen flex-col overflow-hidden bg-[#FCFDFD]">
-        <Header onNewProject={handleRestart} />
+        <Header onNewProject={handleRestart} onHome={handleRestart} />
         {/* Only once a quote exists: the way back to it, and a reminder that carrying the
             conversation on will produce a new one. */}
         {comparison && (
@@ -457,7 +459,7 @@ export function Home({
 
   return (
     <div className="flex min-h-screen flex-col bg-[#FCFDFD]">
-      <Header onNewProject={handleRestart} />
+      <Header onNewProject={handleRestart} onHome={handleRestart} />
 
       {stage === 'hero' && (
         <HeroInputScreen

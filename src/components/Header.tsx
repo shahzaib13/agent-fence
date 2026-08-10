@@ -3,7 +3,18 @@ import { Link } from 'react-router'
 import { signOutUser, useAuth } from '../hooks/useAuth'
 import { SignInDialog } from './SignInDialog'
 
-export function Header({ dimmed, onNewProject }: { dimmed?: boolean; onNewProject?: () => void }) {
+export function Header({
+  dimmed,
+  onNewProject,
+  onHome,
+}: {
+  dimmed?: boolean
+  onNewProject?: () => void
+  /** Home already being the current route, the router has nothing to navigate to and the page
+   *  keeps whatever it was showing — so the pages that live at "/" clear themselves down here
+   *  instead. Elsewhere the Link alone is the whole answer. */
+  onHome?: () => void
+}) {
   const { user, isLoading } = useAuth()
   const [isSigningIn, setIsSigningIn] = useState(false)
 
@@ -12,7 +23,11 @@ export function Header({ dimmed, onNewProject }: { dimmed?: boolean; onNewProjec
       className={`flex h-22 w-full items-center justify-between gap-4 px-6 transition-opacity ${dimmed ? 'pointer-events-none opacity-40' : ''}`}
     >
       <div className="flex min-w-0 items-center gap-10">
-        <Link to="/" className="flex shrink-0 items-center gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#062D27]">
+        <Link
+          to="/"
+          onClick={onHome}
+          className="flex shrink-0 items-center gap-2 rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#062D27]"
+        >
           <span className="h-2.5 w-2.5 rounded-full bg-[#062D27]" />
           <span className="text-xl font-bold tracking-tight whitespace-nowrap text-[#062D27]">Aura</span>
         </Link>
