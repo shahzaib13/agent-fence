@@ -177,7 +177,12 @@ export async function sendFencingChatMessage(
     }
   }
 
-  const { data } = await api.post<FencingChatResponse>(FENCING_CHAT_WEBHOOK_URL, payload, { timeout: 30_000 })
+  // Far past the client default, and longer again when files ride along. A compare turn runs a
+  // classifier, an agent and a business lookup before it answers; attachments add the upload
+  // itself plus an extraction pass on top of all that. At 30s these were timing out in the
+  // browser while n8n was still working on them, which reads to the customer as a crash.
+  const timeout = quoteFiles && quoteFiles.length > 0 ? 180_000 : 90_000
+  const { data } = await api.post<FencingChatResponse>(FENCING_CHAT_WEBHOOK_URL, payload, { timeout })
   if (!data || typeof data.message !== 'string' || !VALID_TYPES.includes(data.type)) {
     throw new Error(`Fencing chat webhook returned an unexpected response shape: ${JSON.stringify(data)}`)
   }
