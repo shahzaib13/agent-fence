@@ -74,6 +74,20 @@ describe('QuoteComparisonPage', () => {
     expect(screen.getByText('12')).toBeInTheDocument()
   })
 
+  // The results live at "/" as well, so the logo's Link had nowhere to navigate and clicking it
+  // sat on the results page. Same for "New project", which was wired to nothing at all here.
+  it('starts over from the logo and from New project, since neither is a route change', async () => {
+    const user = userEvent.setup()
+    const onBack = vi.fn()
+    render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={onBack} />)
+
+    await user.click(screen.getByText('Aura'))
+    expect(onBack).toHaveBeenCalledTimes(1)
+
+    await user.click(screen.getByRole('button', { name: /new project/i }))
+    expect(onBack).toHaveBeenCalledTimes(2)
+  })
+
   it('marks the BEST_VALUE quote and shows its savings, but marks a no-savings quote as at local average', () => {
     render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={vi.fn()} />)
 

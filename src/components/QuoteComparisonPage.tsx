@@ -58,7 +58,9 @@ export function QuoteComparisonPage({
 
   return (
     <div className="flex min-h-screen flex-col bg-[#FCFDFD]">
-      <Header />
+      {/* Both start the customer over, and both were doing nothing at all from this page —
+          the results live at "/" too, so the logo's Link had nowhere to navigate. */}
+      <Header onHome={onBack} onNewProject={onBack} />
 
       <main className="mx-auto flex w-full max-w-[1024px] flex-1 flex-col items-center px-4 pt-12 pb-24">
         <button

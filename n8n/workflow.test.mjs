@@ -1084,3 +1084,199 @@ describe('beating a quote the customer already has', () => {
     expect(comparison.userExistingPrice).toBeNull()
   })
 })
+
+/* ------------------------------------------------- the document is read in code, not guessed */
+// The complaint this exists for: the same PDF gave five fields on one run and two on the next,
+// and the customer was asked for a height they had already attached. Nothing here goes near the
+// model, so the same document produces the same fields every time.
+describe('what a quote document says outright', () => {
+  const read = (text) =>
+    runOne('Normalize Extracted Text', {
+      nodes: { 'Normalize Input1': { message: 'here is my quote', sessionId: 's' } },
+      input: [{ json: { combinedExtractedText: [text] } }],
+    }).docFacts
+
+  // Verbatim off the customer's real PDF, headings and bank details and all.
+  const REAL_QUOTE = `EMAIL ip0uo@gmail.com
+Qty Job Description Unit Price Total
+1 Install 25m of 1.8H standard timber fence paling fence with
+concrete to be used as the base for the Hardwood post and
+treated pine plinth, rails and palings to be used
+$2,000.00
+1 Disposal of 25m of old fence $1,009.00
+Subtotal $3,009.00
+GST (10%) $300.90
+Total $3,309.90
+Bank Account Details:
+Account Name: A plus quality construction Pty Ltd
+BSB:083004
+Account Number: 449424225`
+
+  it('reads the whole brief off the real quote, every field at once', () => {
+    expect(read(REAL_QUOTE)).toEqual({
+      fenceType: 'Timber',
+      heightMm: 1800,
+      lengthMeters: 25,
+      removeOldFence: true,
+      existingPrice: 3309.9,
+    })
+  })
+
+  it('takes the GST-inclusive total, not the subtotal and not a line item', () => {
+    expect(read(REAL_QUOTE).existingPrice).toBe(3309.9)
+    // The "Total" column heading sits directly above a quantity of 1 — reading that as the
+    // quote is worse than reading nothing, because it prices the job at a dollar.
+    expect(read('Qty Description Unit Price Total\n1 Install fence $2,000.00').existingPrice).toBeUndefined()
+  })
+
+  it("reads the trade's own shorthand for a run and a height", () => {
+    // 20 metres long, 1800mm high, written the way a fencer writes it
+    expect(read('Supply 20L of 1.8H colorbond')).toMatchObject({ lengthMeters: 20, heightMm: 1800 })
+    expect(read('25 lineal metres of 1800H colorbond')).toMatchObject({ lengthMeters: 25, heightMm: 1800 })
+    expect(read('30 LM colorbond fence, 1.5m high')).toMatchObject({ lengthMeters: 30, heightMm: 1500 })
+    expect(read('40m of 6ft colorbond fencing')).toMatchObject({ lengthMeters: 40, heightMm: 1829 })
+    // The unit spelled out in full, and a run that never says the word "fence" next to it
+    expect(read('35m timber paling, 1.8 metres high')).toMatchObject({ lengthMeters: 35, heightMm: 1800 })
+    expect(read('rural post and wire 200m')).toMatchObject({ lengthMeters: 200 })
+    expect(read('glass pool fence, 12m run, 1.2H')).toMatchObject({ lengthMeters: 12, heightMm: 1200 })
+  })
+
+  it('does not read the height as the length just because both are in metres', () => {
+    expect(read('Install 1.8m high colorbond fence').lengthMeters).toBeUndefined()
+    // Nor a footing depth or a post spacing, which sit on the page in the same units
+    expect(read('Colorbond 1.8m high, posts concreted 600mm deep at 2.4m centres').lengthMeters).toBeUndefined()
+  })
+
+  it('counts any way of saying the old one goes as a removal', () => {
+    for (const line of [
+      'Disposal of 25m of old fence',
+      'Remove and cart away existing timber fence',
+      'Demolition of existing fence',
+      'Old fence to be taken away',
+      'Pull down the current fence first',
+    ]) {
+      expect(read(line).removeOldFence).toBe(true)
+    }
+  })
+
+  it('does not book a demolition off a line that says there is none', () => {
+    expect(read('No disposal of old fence required').removeOldFence).toBeUndefined()
+    expect(read('Excludes removal of the existing fence').removeOldFence).toBeUndefined()
+  })
+
+  it('stays quiet about an old fence the document never mentions', () => {
+    // Silence is not a "no" — leaving it unset is what makes the agent ask
+    expect(read('Install 25m of 1.8H timber fence').removeOldFence).toBeUndefined()
+  })
+
+  // Twenty documents written every way a fencer writes one. The value here is not any single
+  // line, it is that the answer to each is the same on every run — which was the complaint.
+  it('reads a run however the page words it', () => {
+    expect(read('Supply and install 1800 high x 25000 long Colorbond fence').lengthMeters).toBe(25)
+    expect(read('Approx 80 lineal feet of 6ft treated pine paling').lengthMeters).toBe(24)
+    expect(read('need bout 30 odd meters of colorbond').lengthMeters).toBe(30)
+    expect(read('Timber paling 1.8H @ $120 per lineal metre x 25 LM = $3,000.00').lengthMeters).toBe(25)
+  })
+
+  it('reads a height in feet, inches included', () => {
+    expect(read(`Install 30m of 5'6" colorbond fence`).heightMm).toBe(1676)
+    expect(read('6 foot high colorbond').heightMm).toBe(1829)
+    // 80 feet is the run, not the height — no fence is eighty feet tall
+    expect(read('80 lineal feet of colorbond fencing').heightMm).toBeUndefined()
+  })
+
+  it('refuses a span, because the rate is charged per metre', () => {
+    // Picking either end quotes a job nobody described; leaving it makes the agent ask
+    expect(read('Somewhere between 20 and 30 metres of 1.8H colorbond').lengthMeters).toBeUndefined()
+    expect(read('20-30m of 1.8H colorbond').lengthMeters).toBeUndefined()
+    expect(read('20 to 30 lineal metres of colorbond').lengthMeters).toBeUndefined()
+  })
+
+  it('takes the fence height, not the gate beside it or the footing under it', () => {
+    const twoHeights = read(`18m of 1.2H glass pool fencing
+1 x 1.8H aluminium gate with self closing hinge`)
+
+    expect(twoHeights.heightMm).toBe(1200)
+    expect(read('45m colorbond, height 1800mm, posts 600mm deep at 2.4m centres')).toMatchObject({
+      heightMm: 1800,
+      lengthMeters: 45,
+    })
+  })
+
+  it('takes the quote, not the deposit and not a line item', () => {
+    const withDeposit = read(`40m of 1.8H Colorbond
+Total inc GST $6,600.00
+50% deposit due $3,300.00`)
+
+    expect(withDeposit.existingPrice).toBe(6600)
+  })
+
+  it('leaves a page that only lists rates alone — nobody quoted a job on it', () => {
+    const card = read(`Colorbond 1.5m — $95/m
+Colorbond 1.8m — $115/m
+Timber paling 1.8m — $130/m`)
+
+    expect(card.lengthMeters).toBeUndefined()
+    expect(card.existingPrice).toBeUndefined()
+  })
+
+  it('never reads a suburb off the page — that still only comes from the map', () => {
+    expect(read('Install 25m fence at 12 Smith St, Pakenham VIC 3810').suburb).toBeUndefined()
+  })
+
+  it('will not blend figures across several attached quotes', () => {
+    const facts = runOne('Normalize Extracted Text', {
+      nodes: { 'Normalize Input1': { message: 'two quotes', sessionId: 's' } },
+      input: [{ json: { combinedExtractedText: ['25m of 1.8H timber', 'Total $9,000.00'] } }],
+    }).docFacts
+
+    expect(facts).toEqual({})
+  })
+
+  it('hands them to the agent under the heading it already trusts', () => {
+    const { docFactsBlock } = runOne('Normalize Extracted Text', {
+      nodes: { 'Normalize Input1': { message: 'x', sessionId: 's' } },
+      input: [{ json: { combinedExtractedText: [REAL_QUOTE] } }],
+    })
+
+    expect(docFactsBlock).toContain('do NOT ask about these again')
+    expect(docFactsBlock).toContain('"existingPrice":3309.9')
+  })
+
+  it('says nothing at all when there was no attachment', () => {
+    const out = runOne('Normalize Extracted Text', {
+      nodes: { 'Normalize Input1': { message: 'no file here', sessionId: 's' } },
+      input: [{ json: {} }],
+    })
+
+    expect(out.docFacts).toEqual({})
+    expect(out.docFactsBlock).toBe('')
+    expect(out.extractionFailed).toBe(false)
+  })
+})
+
+describe('a field the document answered is never asked about', () => {
+  const DOC = { docFacts: { fenceType: 'Timber', heightMm: 1800, lengthMeters: 25, removeOldFence: true, existingPrice: 3309.9 } }
+
+  it('fills in what the model dropped, so the same PDF always gives the same brief', () => {
+    // The model returning an empty checklist is the bad run the customer kept hitting
+    const turn = formatTurn(
+      { type: 'question', message: 'What height are you after?', options: [], checklist: {} },
+      { extracted: DOC },
+    )
+
+    expect(turn.checklist).toMatchObject({ fenceType: 'Timber', heightMm: 1800, lengthMeters: 25, removeOldFence: true })
+    expect(turn.checklist.existingPrice).toBe(3309.9)
+    // Everything the document answered is filled, so the only thing left to ask is the suburb
+    expect(turn.intent).toBe('compare_quote')
+  })
+
+  it('never overrules what the customer actually said', () => {
+    const turn = formatTurn(
+      { type: 'question', message: 'x', options: [], checklist: { ...FULL_BRIEF, lengthMeters: 40 } },
+      { extracted: DOC },
+    )
+
+    expect(turn.checklist.lengthMeters).toBe(40)
+  })
+})

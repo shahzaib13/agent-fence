@@ -395,6 +395,14 @@ describe('Home', () => {
     expect(screen.getAllByText('Services Pakenham')).toHaveLength(2)
     // and the names are behind the blur, on this flow too
     expect(screen.getByText('A Plus Fencing')).toHaveAttribute('aria-hidden', 'true')
+
+    // The result arriving is also the end of the wait. It used to leave the thinking screen
+    // armed behind the results page, so the way back to the conversation showed a progress
+    // animation that nothing was ever going to finish, and only a reload cleared it.
+    await user.click(screen.getByRole('button', { name: /view chat/i }))
+
+    expect(await screen.findByText(/all correct\?/i)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /finalising your quote/i })).not.toBeInTheDocument()
   })
 
   it('keeps a no-match result in the thread so the reason is actually readable', async () => {
