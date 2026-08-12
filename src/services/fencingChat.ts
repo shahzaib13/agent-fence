@@ -90,6 +90,9 @@ export interface FencingChatResponse {
   // versions, hence optional.
   checklist?: ChecklistData | null
   checklistComplete?: boolean
+  // Trade the backend routed this turn onto (`fencing`, `tiling`, …). Empty string means it
+  // is still asking which trade it is — the client must not store that, or the lock is lost.
+  trade?: string
 }
 
 // The production n8n webhook everywhere, local dev included — the test webhook only answers
@@ -129,6 +132,9 @@ export interface SessionContext {
   // carried so postcode/state/coordinates/placeId reach the workflow (and later the lead
   // record) instead of being thrown away the moment the label is sent as text.
   place?: SuburbPlace | null
+  // Last non-empty trade the backend confirmed, or the homepage chip. Empty string means
+  // none is stored yet — the backend should detect from the message.
+  trade?: string | null
 }
 
 function serialiseKnownChecklist(checklist: ChecklistData | null | undefined) {
@@ -148,13 +154,15 @@ export async function sendFencingChatMessage(
   // Sent even when it is 0 — 0 is the value that means something. A truthiness check here would
   // drop exactly the turn the workflow needs to recognise.
   const turn = session?.turn ?? null
+  const trade = session?.trade ?? ''
   let payload:
     | FormData
-    | { message: string; sessionId: string; intent?: string; knownChecklist?: string; place?: string; turn?: number }
+    | { message: string; sessionId: string; intent?: string; knownChecklist?: string; place?: string; turn?: number; trade: string }
   if (quoteFiles && quoteFiles.length > 0) {
     payload = new FormData()
     payload.append('message', message)
     payload.append('sessionId', sessionId)
+    payload.append('trade', trade)
     if (session?.intent) payload.append('intent', session.intent)
     if (knownChecklist) payload.append('knownChecklist', knownChecklist)
     if (place) payload.append('place', place)
@@ -170,6 +178,7 @@ export async function sendFencingChatMessage(
     payload = {
       message,
       sessionId,
+      trade,
       ...(session?.intent ? { intent: session.intent } : {}),
       ...(knownChecklist ? { knownChecklist } : {}),
       ...(place ? { place } : {}),

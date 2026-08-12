@@ -40,6 +40,8 @@ export interface QuoteSession {
   place: SuburbPlace | null
   comparison: ComparisonSummary | null
   intent?: 'new_quote' | 'compare_quote'
+  /** Backend trade lock (`fencing`, `tiling`, …). Null until a chip or the backend sets one. */
+  trade?: string | null
   /** Set once the session has an owner; absent means it is still a guest's. */
   uid?: string
   phone?: string

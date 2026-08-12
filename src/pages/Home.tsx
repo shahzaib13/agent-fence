@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatWindow, type ChatMessage } from '../components/ChatWindow'
 import { ChecklistPanel } from '../components/ChecklistPanel'
-import { ComingSoonScreen } from '../components/ComingSoonScreen'
 import { Header } from '../components/Header'
 import { HeroInputScreen } from '../components/HeroInputScreen'
 import { QuoteComparisonPage } from '../components/QuoteComparisonPage'
@@ -23,10 +22,11 @@ import { generateId } from '../utils/id'
 // user has confirmed their brief and the workflow goes off to rank businesses. There is no
 // `results` stage: both flows finish on the comparison page, which renders off `comparison`
 // state rather than off a stage.
-type Stage = 'hero' | 'coming-soon' | 'chat' | 'thinking'
+type Stage = 'hero' | 'chat' | 'thinking'
 
-// Only Fence is wired to a real backend today — every other type gets the "coming soon" screen.
-const LIVE_PROJECT_TYPE = 'Fence'
+// What a homepage chip locks the backend onto. Chips not listed here still go to chat;
+// the workflow reads the description and picks the trade itself.
+const CHIP_TRADE: Record<string, string> = { Fence: 'fencing' }
 
 // A turn that is asking where the job is. The workflow says so with `expects`, but the client
 // does not depend on it getting that right: a suburb typed as free text silently matches zero
@@ -53,6 +53,7 @@ export function Home({
   const [sessionId, setSessionId] = useState(() => initialSession?.sessionId ?? generateId())
   const [messages, setMessages] = useState<ChatMessage[]>(() => initialSession?.messages ?? [])
   const [intent, setIntent] = useState<'new_quote' | 'compare_quote' | undefined>(initialSession?.intent)
+  const [trade, setTrade] = useState<string | null>(() => initialSession?.trade ?? null)
   const [lastFailedText, setLastFailedText] = useState<string | null>(null)
   const [lastFailedFiles, setLastFailedFiles] = useState<File[] | null>(null)
   // Whatever the turn currently in flight is carrying — the wait says what it's reading.
@@ -99,8 +100,9 @@ export function Home({
       place,
       comparison,
       intent,
+      trade,
     }),
-    [messages, checklist, place, comparison, intent, sessionId],
+    [messages, checklist, place, comparison, intent, trade, sessionId],
   )
 
   useEffect(() => {
@@ -145,6 +147,7 @@ export function Home({
             ? previousChecklist
             : { ...previousChecklist, suburb: null },
         place: confirmedPlace ?? place,
+        trade: trade ?? '',
       })
       // Locked on the first turn that declares one, never overwritten afterwards. The workflow
       // re-runs its new_quote/compare_quote classifier on every single turn, and a flip
@@ -166,6 +169,7 @@ export function Home({
       // Only overwrite when this turn actually carries a checklist — a "what should I fix?"
       // acknowledgement or similar aside may legitimately omit it. Keeping the last-known
       // checklist means the sidebar never blanks out mid-conversation.
+      if (response.trade) setTrade(response.trade)
       if (response.checklist) setChecklist(response.checklist)
       setChecklistComplete(response.checklistComplete ?? false)
 
@@ -356,17 +360,6 @@ export function Home({
   }
 
   const handleHeroSubmit = (quoteFiles: File[]) => {
-    // Only an explicit chip click routes to "coming soon" now — free-typed descriptions
-    // always go straight to the real fencing flow. n8n's own agent enforces the
-    // fencing-only scope (and declines/redirects conversationally) instead of a
-    // client-side keyword guess.
-    const effectiveType = selectedType ?? LIVE_PROJECT_TYPE
-
-    if (effectiveType !== LIVE_PROJECT_TYPE) {
-      setSelectedType(effectiveType)
-      setStage('coming-soon')
-      return
-    }
     setStage('chat')
     setMessages([{ id: generateId(), role: 'user', text: description }])
     void sendMessage(description, quoteFiles)
@@ -376,6 +369,7 @@ export function Home({
     setSessionId(generateId())
     setMessages([])
     setIntent(undefined)
+    setTrade(null)
     setLastFailedText(null)
     setLastFailedFiles(null)
     setComparison(null)
@@ -426,7 +420,7 @@ export function Home({
             </button>
           </div>
         )}
-        <div className="grid min-h-0 flex-1 border-t border-gray-200 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="grid min-h-0 flex-1 overflow-hidden border-t border-gray-200 lg:grid-cols-[minmax(0,1fr)_22rem]">
           <ChatWindow
             messages={messages}
             isLoading={isLoading}
@@ -452,6 +446,8 @@ export function Home({
           checklistComplete={checklistComplete}
           awaitingResult
           intent={intent}
+          trade={trade}
+          selectedType={selectedType}
         />
       </div>
     )
@@ -473,13 +469,10 @@ export function Home({
               return isEmpty || matchesPriorPrefill ? buildPrefill(type) : d
             })
             setSelectedType(type)
+            setTrade(CHIP_TRADE[type] ?? null)
           }}
           onSubmit={handleHeroSubmit}
         />
-      )}
-
-      {stage === 'coming-soon' && (
-        <ComingSoonScreen projectType={selectedType ?? 'This'} onBack={handleRestart} />
       )}
 
       <footer className="flex justify-center py-8">

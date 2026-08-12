@@ -19,10 +19,31 @@ describe('ThinkingScreen', () => {
   })
 
   it('expands the checklist inside the second card while fields are still missing', () => {
-    render(<ThinkingScreen description="" checklist={{ ...fullChecklist, heightMm: null }} checklistComplete={false} />)
+    render(
+      <ThinkingScreen
+        description=""
+        checklist={{ ...fullChecklist, heightMm: null }}
+        checklistComplete={false}
+        trade="fencing"
+      />,
+    )
 
     expect(screen.getByText('Gathering your fencing details')).toBeInTheDocument()
     expect(screen.getByText('Suburb: Berwick')).toBeInTheDocument()
+  })
+
+  it('names the thinking copy after the job they asked for, not fencing', () => {
+    render(
+      <ThinkingScreen
+        description=""
+        checklist={{ ...fullChecklist, heightMm: null }}
+        checklistComplete={false}
+        trade="retaining-wall"
+      />,
+    )
+
+    expect(screen.getByText('Gathering your retaining wall details')).toBeInTheDocument()
+    expect(screen.queryByText('Gathering your fencing details')).not.toBeInTheDocument()
   })
 
   it('shows "Confirming your details" once every field is known but not yet confirmed', () => {
@@ -32,13 +53,23 @@ describe('ThinkingScreen', () => {
   })
 
   it('shows the new-quote finishing card once awaiting the final result', async () => {
-    render(<ThinkingScreen description="" checklist={fullChecklist} checklistComplete awaitingResult intent="new_quote" />)
+    render(
+      <ThinkingScreen
+        description=""
+        checklist={fullChecklist}
+        checklistComplete
+        awaitingResult
+        intent="new_quote"
+        selectedType="Deck"
+      />,
+    )
 
     // The reveal replays from card 0 rather than jumping straight there — real progress, not a snap.
     expect(screen.getByRole('heading', { name: 'Analysing your project' })).toBeInTheDocument()
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Finalising your quote' })).toBeInTheDocument())
     expect(screen.getByText('Finding your best local matches')).toBeInTheDocument()
+    expect(screen.getByText("We're matching you with the best local decking businesses.")).toBeInTheDocument()
   })
 
   it('shows the comparison-specific finishing card for the compare_quote intent', async () => {

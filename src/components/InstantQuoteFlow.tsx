@@ -3,6 +3,7 @@ import type { ComparisonQuote } from '../services/fencingChat'
 import { submitJob } from '../services/jobs'
 import type { QuoteSession } from '../services/quotes'
 import { partnerSiteUrl } from '../services/handoff'
+import { buildAiSummary, buildAiSummaryQuote } from '../services/aiSummary'
 import { shareTranscriptInChats } from '../services/chat'
 import { buildTranscriptPdf, storeTranscriptForJob } from '../services/transcript'
 import { OTP_LENGTH, RECAPTCHA_CONTAINER_ID, releaseVerifier, sendOtp, verifyOtp, type OtpSession } from '../services/otp'
@@ -242,9 +243,18 @@ export function InstantQuoteFlow({
           await shareTranscriptInChats({
             customerUid: uid,
             businesses: selectedQuotes.flatMap((quote) =>
-              quote.businessId ? [{ id: quote.businessId, name: quote.businessName }] : [],
+              quote.businessId
+                ? [
+                    {
+                      id: quote.businessId,
+                      name: quote.businessName,
+                      quote: buildAiSummaryQuote(quote, quoteSession.comparison ?? null),
+                    },
+                  ]
+                : [],
             ),
             pdf,
+            summary: buildAiSummary(quoteSession),
           })
         }
         jobSubmittedRef.current = true

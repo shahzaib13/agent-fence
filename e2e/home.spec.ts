@@ -104,11 +104,18 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
   await expect(page.getByRole('button', { name: /proceed/i })).toHaveCount(0)
 })
 
-test('other project types show the coming-soon screen without hitting the webhook', async ({ page }) => {
-  let webhookCalled = false
+test('other project types open the chat and hit the webhook', async ({ page }) => {
   await page.route('**/fencing-chat-api', async (route) => {
-    webhookCalled = true
-    await route.fulfill({ json: { sessionId: 'x', type: 'message', message: 'unexpected', options: [], results: [], avgRatePerMeter: null } })
+    await route.fulfill({
+      json: {
+        sessionId: 'x',
+        type: 'message',
+        message: 'What suburb is this in?',
+        options: [],
+        results: [],
+        avgRatePerMeter: null,
+      },
+    })
   })
 
   await page.goto('/')
@@ -116,6 +123,7 @@ test('other project types show the coming-soon screen without hitting the webhoo
   await page.getByRole('button', { name: /^deck$/i }).click()
   await page.getByRole('button', { name: /start analysis/i }).click()
 
-  await expect(page.getByRole('heading', { name: /deck quotes are in development/i })).toBeVisible()
-  expect(webhookCalled).toBe(false)
+  await expect(page.getByRole('heading', { name: /deck quotes are in development/i })).toHaveCount(0)
+  await expect(page.getByText('A 6x4m timber deck')).toBeVisible()
+  await expect(page.getByText(/what suburb is this in/i)).toBeVisible()
 })

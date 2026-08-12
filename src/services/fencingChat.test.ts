@@ -36,7 +36,7 @@ describe('sendFencingChatMessage', () => {
     await sendFencingChatMessage('hello', 's1', null, { intent: 'compare_quote' })
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1', intent: 'compare_quote' },
+      { message: 'hello', sessionId: 's1', trade: '', intent: 'compare_quote' },
       expect.anything(),
     )
 
@@ -44,7 +44,19 @@ describe('sendFencingChatMessage', () => {
     await sendFencingChatMessage('hello', 's1')
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1' },
+      { message: 'hello', sessionId: 's1', trade: '' },
+      expect.anything(),
+    )
+  })
+
+  it('sends the stored trade on every turn, including an empty one when none is locked', async () => {
+    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
+    mockedPost.mockResolvedValue({ data: payload })
+
+    await sendFencingChatMessage('hello', 's1', null, { trade: 'fencing' })
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      expect.any(String),
+      { message: 'hello', sessionId: 's1', trade: 'fencing' },
       expect.anything(),
     )
   })
@@ -59,7 +71,7 @@ describe('sendFencingChatMessage', () => {
 
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1', knownChecklist: '{"suburb":"Pakenham","lengthMeters":20}' },
+      { message: 'hello', sessionId: 's1', trade: '', knownChecklist: '{"suburb":"Pakenham","lengthMeters":20}' },
       expect.anything(),
     )
   })
@@ -72,7 +84,7 @@ describe('sendFencingChatMessage', () => {
 
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1' },
+      { message: 'hello', sessionId: 's1', trade: '' },
       expect.anything(),
     )
   })
@@ -86,14 +98,14 @@ describe('sendFencingChatMessage', () => {
     await sendFencingChatMessage('hello', 's1', null, { turn: 0 })
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1', turn: 0 },
+      { message: 'hello', sessionId: 's1', trade: '', turn: 0 },
       expect.anything(),
     )
 
     await sendFencingChatMessage('hello', 's1', null, { turn: 4 })
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1', turn: 4 },
+      { message: 'hello', sessionId: 's1', trade: '', turn: 4 },
       expect.anything(),
     )
 
@@ -101,7 +113,7 @@ describe('sendFencingChatMessage', () => {
     await sendFencingChatMessage('hello', 's1')
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1' },
+      { message: 'hello', sessionId: 's1', trade: '' },
       expect.anything(),
     )
   })
@@ -115,6 +127,7 @@ describe('sendFencingChatMessage', () => {
     const sent = mockedPost.mock.lastCall?.[1] as FormData
     expect(sent).toBeInstanceOf(FormData)
     expect(sent.get('turn')).toBe('0')
+    expect(sent.get('trade')).toBe('')
   })
 
   it('never hands back a blank message for the thread to render', async () => {

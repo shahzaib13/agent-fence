@@ -416,14 +416,14 @@ export function ChatWindow({
   }, [draft])
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <div
         ref={scrollRef}
         onScroll={(event) => {
           const el = event.currentTarget
           isPinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
         }}
-        className="flex-1 overflow-y-auto px-6 sm:px-10"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 sm:px-10 [overflow-anchor:none]"
       >
         <div className="mx-auto flex w-full max-w-400 flex-col gap-8 py-10">
           {messages.map((message) =>

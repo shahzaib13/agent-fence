@@ -28,8 +28,14 @@ vi.mock('firebase/database', () => ({
 }))
 
 const pdf = new Blob(['pdf'], { type: 'application/pdf' })
+const summary = {
+  generatedAt: 1_754_000_000_000,
+  messageCount: 1,
+  brief: [{ label: 'Suburb', value: 'Pakenham, VIC 3810' }],
+  transcript: [{ role: 'customer' as const, text: 'I need a fence' }],
+}
 const share = (businesses: { id: string; name: string }[]) =>
-  shareTranscriptInChats({ customerUid: 'cust-1', businesses, pdf })
+  shareTranscriptInChats({ customerUid: 'cust-1', businesses, pdf, summary })
 
 describe('shareTranscriptInChats', () => {
   beforeEach(() => {
@@ -64,7 +70,7 @@ describe('shareTranscriptInChats', () => {
       senderId: 'cust-1',
       // Decides which side of the conversation the bubble sits on
       senderType: 'user',
-      text: 'ai-conversation.pdf',
+      text: 'AI quote conversation',
       status: 'sent',
       mediaType: 'document',
       fileName: 'ai-conversation.pdf',
@@ -80,7 +86,7 @@ describe('shareTranscriptInChats', () => {
     // The first meta write only identifies the thread; an inbox row with no lastMessage is
     // skipped, so announcing one before the push would list an empty conversation
     expect(first.value).not.toHaveProperty('lastMessage')
-    expect(last.value).toMatchObject({ lastMessage: 'ai-conversation.pdf', lastSenderType: 'user' })
+    expect(last.value).toMatchObject({ lastMessage: 'AI quote conversation', lastSenderType: 'user' })
   })
 
   it('merges into a thread that already exists rather than replacing it', async () => {
