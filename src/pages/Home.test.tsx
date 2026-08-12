@@ -106,7 +106,7 @@ describe('Home', () => {
 
     expect(screen.getByText('Colorbond fence, Berwick, 20m')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByText(/ready for a few questions/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null, trade: '' })
     // the composer is always there — the user can type at any point, MCQ on screen or not
     expect(screen.getByLabelText(/your reply/i)).toBeInTheDocument()
   })
@@ -230,6 +230,44 @@ describe('Home', () => {
     await user.click(screen.getByRole('button', { name: /send message/i }))
 
     expect(mockedSend).toHaveBeenLastCalledWith('ok', expect.any(String), undefined, expect.objectContaining({ intent: 'new_quote' }))
+  })
+
+  it('echoes the locked trade back every turn and ignores an empty one from the backend', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'What type of fence are you after?',
+      options: [{ label: 'Timber', value: 'Timber' }],
+      results: [],
+      avgRatePerMeter: null,
+      trade: 'fencing',
+    })
+
+    await startChat(user)
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'Colorbond fence, Berwick, 20m',
+      expect.any(String),
+      [],
+      expect.objectContaining({ trade: '' }),
+    )
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Got it.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+      trade: '',
+    })
+    await user.click(await screen.findByRole('button', { name: 'Timber' }))
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'Timber',
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ trade: 'fencing' }),
+    )
   })
 
   it('echoes the checklist it already has back on every turn, so nothing gets asked twice', async () => {
@@ -505,7 +543,7 @@ describe('Home', () => {
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
     expect(screen.queryByText(/something went wrong on my end/i)).not.toBeInTheDocument()
-    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null, trade: '' })
   })
 
   it('shows the live checklist in the sidebar as the workflow fills it in', async () => {
@@ -637,18 +675,54 @@ describe('Home', () => {
     expect(screen.queryByText(/what suburb is this in/i)).not.toBeInTheDocument()
   })
 
-  it('selecting a non-fencing project type shows the coming-soon screen instead of calling the API', async () => {
+  it('selecting a non-fencing project type still opens the chat and calls the API', async () => {
     const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'What suburb is this in?',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
 
     render(<Home />)
     await user.click(screen.getByRole('button', { name: /^deck$/i }))
     await user.click(screen.getByRole('button', { name: /start analysis/i }))
 
-    expect(screen.getByRole('heading', { name: /deck quotes are in development/i })).toBeInTheDocument()
-    expect(mockedSend).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: /deck quotes are in development/i })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
+    expect(mockedSend).toHaveBeenCalledWith(
+      'I need a deck — ',
+      expect.any(String),
+      [],
+      expect.objectContaining({ trade: '' }),
+    )
+  })
 
-    await user.click(screen.getByRole('button', { name: /get a fencing quote instead/i }))
-    expect(screen.getByRole('heading', { name: /describe your construction project/i })).toBeInTheDocument()
+  it('locks trade to fencing only when the Fence chip was tapped, otherwise leaves it for the backend', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValue({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'What suburb is this in?',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+    })
+
+    render(<Home />)
+    await user.click(screen.getByRole('button', { name: /^fence$/i }))
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+
+    await waitFor(() =>
+      expect(mockedSend).toHaveBeenCalledWith(
+        'I need a fence — ',
+        expect.any(String),
+        [],
+        expect.objectContaining({ trade: 'fencing' }),
+      ),
+    )
   })
 
   it('updates the prefilled description every time the chip selection changes', async () => {
@@ -683,7 +757,7 @@ describe('Home', () => {
     await user.type(screen.getByLabelText(/describe your construction project/i), 'Colorbond fence, Berwick, 20m{Enter}')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null, trade: '' })
   })
 
   it('sends any free-typed description straight to n8n, even if it never mentions fencing', async () => {
@@ -700,7 +774,7 @@ describe('Home', () => {
     await startChat(user, 'I need a medical report')
 
     await waitFor(() => expect(screen.getByText(/what suburb is this in/i)).toBeInTheDocument())
-    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null })
+    expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], { intent: undefined, turn: 0, knownChecklist: null, place: null, trade: '' })
   })
 
   it('answers a suburb turn from the picker and carries the whole place to the workflow', async () => {

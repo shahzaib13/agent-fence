@@ -5,6 +5,25 @@ import { ChecklistRows } from './ChecklistRows'
 
 type CardState = 'done' | 'active' | 'pending'
 
+// Chip labels ("Fence", "Retaining Wall") and backend slugs ("fencing", "retaining-wall")
+// both land here so the thinking copy names the job they actually asked for.
+const JOB_KIND: Record<string, string> = {
+  fence: 'fencing',
+  fencing: 'fencing',
+  tile: 'tiling',
+  tiling: 'tiling',
+  deck: 'decking',
+  decking: 'decking',
+  'retaining wall': 'retaining wall',
+  'retaining-wall': 'retaining wall',
+}
+
+function jobKind(trade?: string | null, selectedType?: string | null) {
+  const raw = (trade || selectedType || '').trim().toLowerCase().replace(/_/g, '-')
+  if (!raw) return ''
+  return JOB_KIND[raw] ?? raw.replace(/-/g, ' ')
+}
+
 function buildFirstCardLabel(description: string) {
   const trimmed = description.trim()
   const excerpt = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed
@@ -34,15 +53,21 @@ export function ThinkingScreen({
   checklistComplete = false,
   awaitingResult = false,
   intent,
+  trade,
+  selectedType,
 }: {
   description: string
   checklist?: ChecklistData | null
   checklistComplete?: boolean
   awaitingResult?: boolean
   intent?: 'new_quote' | 'compare_quote'
+  trade?: string | null
+  selectedType?: string | null
 }) {
   const activeIndex = getActiveCardIndex(checklist, checklistComplete, awaitingResult)
   const isComparing = intent === 'compare_quote'
+  const kind = jobKind(trade, selectedType)
+  const gathering = kind ? `Gathering your ${kind} details` : 'Gathering your project details'
 
   // Every time this screen mounts (i.e. every single loading moment), replay the journey from
   // card 0 up to wherever we actually are — one card at a time, a beat apart — instead of jumping
@@ -58,20 +83,22 @@ export function ThinkingScreen({
 
   const cards = [
     buildFirstCardLabel(description),
-    'Gathering your fencing details',
+    gathering,
     'Confirming your details',
     isComparing ? 'Comparing your quote against the market' : 'Finding your best local matches',
   ]
 
   const stages = [
     { heading: 'Analysing your project', sub: "Our AI is reading through what you've told us so far." },
-    { heading: 'Gathering your fencing details', sub: "Working out what we already know, and what's still missing." },
+    { heading: gathering, sub: "Working out what we already know, and what's still missing." },
     { heading: 'Confirming your details', sub: 'Just double-checking everything before we search.' },
     {
       heading: isComparing ? 'Comparing your quote' : 'Finalising your quote',
       sub: isComparing
         ? "We're lining up your quote against other local businesses."
-        : "We're matching you with the best local fencing businesses.",
+        : kind
+          ? `We're matching you with the best local ${kind} businesses.`
+          : "We're matching you with the best local businesses.",
     },
   ]
   const { heading, sub: subheading } = stages[displayedIndex]

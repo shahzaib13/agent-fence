@@ -269,8 +269,8 @@ describe('InstantQuoteFlow', () => {
         expect.objectContaining({
           customerUid: 'firebase-uid',
           businesses: [
-            { id: 'biz-1', name: 'Modern Decks NSW' },
-            { id: 'biz-2', name: 'Heritage Decking Co.' },
+            expect.objectContaining({ id: 'biz-1', name: 'Modern Decks NSW' }),
+            expect.objectContaining({ id: 'biz-2', name: 'Heritage Decking Co.' }),
           ],
         }),
       ),

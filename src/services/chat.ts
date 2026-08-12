@@ -7,14 +7,17 @@
 //
 // Everything here is best-effort. The job and the customer are already saved by the time this
 // runs; a chat message that fails to post is worth a console error, not a lost lead.
+import { compactAiSummary, type AiSummary, type AiSummaryQuote } from './aiSummary'
 import { storeFile } from './transcript'
 
 const FILE_NAME = 'ai-conversation.pdf'
+const PREVIEW = 'AI quote conversation'
 
 export interface ChatBusiness {
   /** Firebase Auth uid of the business — the second half of the thread id. */
   id: string
   name: string
+  quote?: AiSummaryQuote
 }
 
 /** Their convention, and the customer's own uid is the first half so the rules recognise them. */
@@ -28,10 +31,12 @@ export async function shareTranscriptInChats({
   customerUid,
   businesses,
   pdf,
+  summary,
 }: {
   customerUid: string
   businesses: ChatBusiness[]
   pdf: Blob
+  summary: Omit<AiSummary, 'quote'>
 }): Promise<void> {
   if (businesses.length === 0) return
 
@@ -71,19 +76,23 @@ export async function shareTranscriptInChats({
         await push(ref(db, `chats/${chatId}/messages`), {
           senderId: customerUid,
           senderType: 'user',
-          text: FILE_NAME,
+          text: PREVIEW,
           timestamp: sentAt,
           status: 'sent',
           mediaUrl,
           mediaType: 'document',
           fileName: FILE_NAME,
+          aiSummary: compactAiSummary({
+            ...summary,
+            ...(business.quote ? { quote: business.quote } : {}),
+          }),
         })
 
         // 4. The preview last, once there is really something to preview. An inbox row with no
         //    `lastMessage` is skipped entirely, so writing this too early would list a
         //    conversation that turned out to be empty.
         await update(ref(db, `chats/${chatId}/meta`), {
-          lastMessage: FILE_NAME,
+          lastMessage: PREVIEW,
           lastMessageAt: sentAt,
           lastSenderType: 'user',
         })
