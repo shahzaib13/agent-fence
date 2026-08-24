@@ -696,11 +696,57 @@ describe('Home', () => {
       'I need a deck — ',
       expect.any(String),
       [],
-      expect.objectContaining({ trade: '' }),
+      expect.objectContaining({ trade: 'decking' }),
     )
   })
 
-  it('locks trade to fencing only when the Fence chip was tapped, otherwise leaves it for the backend', async () => {
+  it('keeps a chip-locked trade when the backend later returns a different one', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'Are you tiling the floor, the walls, or both?',
+      options: [
+        { label: 'Floor', value: 'floor' },
+        { label: 'Wall', value: 'wall' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      trade: 'fencing',
+    })
+
+    render(<Home />)
+    await user.click(screen.getByRole('button', { name: /^tiling$/i }))
+    await user.click(screen.getByRole('button', { name: /start analysis/i }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Floor' })).toBeInTheDocument())
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'I need a tiling — ',
+      expect.any(String),
+      [],
+      expect.objectContaining({ trade: 'tiling' }),
+    )
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Got it.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+      trade: 'fencing',
+    })
+    await user.click(screen.getByRole('button', { name: 'Floor' }))
+
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'floor',
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ trade: 'tiling' }),
+    )
+  })
+
+  it('locks trade from the chip when mapped, otherwise leaves it for the backend', async () => {
     const user = userEvent.setup()
     mockedSend.mockResolvedValue({
       sessionId: 'session-1',

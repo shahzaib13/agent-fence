@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import { checklistFieldLabel, diffFilledField, formatChecklistValue, getActiveCardIndex } from './checklist'
+import { BRIEF_HIDDEN_KEYS, checklistFieldLabel, diffFilledField, formatChecklistValue, getActiveCardIndex, showsInBrief } from './checklist'
 
 describe('diffFilledField', () => {
   it('names the field that went from unknown to known', () => {
     expect(
       diffFilledField({ suburb: 'Berwick', fenceType: null }, { suburb: 'Berwick', fenceType: 'Colorbond' }),
     ).toBe('fenceType')
+  })
+
+  it('ignores _ui when diffing', () => {
+    expect(
+      diffFilledField(
+        { suburb: 'Berwick', _ui: { page: 0 } },
+        { suburb: 'Berwick', material: 'colorbond', _ui: { page: 1 } },
+      ),
+    ).toBe('material')
   })
 
   it('treats a field the previous checklist never had as newly filled', () => {
@@ -21,6 +30,7 @@ describe('diffFilledField', () => {
 describe('checklistFieldLabel', () => {
   it('maps a known key to its human label', () => {
     expect(checklistFieldLabel('fenceType')).toBe('Fence type')
+    expect(checklistFieldLabel('material')).toBe('Material')
   })
 
   it('falls back to the raw key when unrecognised', () => {
@@ -40,11 +50,24 @@ describe('formatChecklistValue', () => {
     expect(formatChecklistValue('lengthMeters', '20-40')).toBe('20-40m')
     expect(formatChecklistValue('lengthMeters', '40+')).toBe('40m+')
     expect(formatChecklistValue('heightMm', 1800)).toBe('1800mm')
+    expect(formatChecklistValue('heightKey', '1.8m')).toBe('1.8m')
+    expect(formatChecklistValue('conditions', ['rock', 'sloped'])).toBe('Rocky ground, Sloped ground')
     expect(formatChecklistValue('existingPrice', 2400)).toBe('$2400')
   })
 
   it('returns an empty string for null', () => {
     expect(formatChecklistValue('suburb', null)).toBe('')
+  })
+})
+
+describe('showsInBrief', () => {
+  it('never surfaces _ui', () => {
+    expect(showsInBrief('_ui', { _ui: { page: 1 }, suburb: null })).toBe(false)
+    expect(BRIEF_HIDDEN_KEYS.has('_ui')).toBe(true)
+  })
+
+  it('hides gateQty when there is no gate type', () => {
+    expect(showsInBrief('gateQty', { gateType: 'none', gateQty: null })).toBe(false)
   })
 })
 

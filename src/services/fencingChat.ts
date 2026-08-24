@@ -10,18 +10,14 @@ export const OTHER_OPTION_VALUE = '__other__'
 
 export interface ChatOption {
   label: string
-  // The real workflow sends non-string values for most MCQ answers (e.g. `heightMm: 1800`,
-  // `removeOldFence: true`) — only `suburb` is ever free text. n8n's own "Set" node coerces
-  // whatever we echo back in `message` to a string, so this only needs to be accurate here,
-  // not converted before sending.
+  // Legacy flows may still send booleans; the new fencing flow uses strings and numbers only.
   value: string | number | boolean
 }
 
-// Field keys are whatever the workflow's checklist object currently has — new-quote flow
-// sends { suburb, fenceType, lengthMeters, heightMm, removeOldFence, siteAccess }, compare-quote
-// flow sends { suburb, fenceType, lengthMeters, existingPrice }. Kept generic instead of a fixed
-// union so a field being added/renamed on the workflow side doesn't require a frontend type change.
-export type ChecklistData = Record<string, string | number | boolean | null>
+// Field keys are whatever the workflow's checklist object currently has. The new fencing flow
+// also carries a `_ui` object for option paging — never display it, always round-trip it.
+export type ChecklistValue = string | number | boolean | null | string[] | Record<string, unknown>
+export type ChecklistData = Record<string, ChecklistValue>
 
 export interface WorkerMatch {
   // Firestore uid of the business. Optional only so an older workflow export degrades to a
@@ -56,6 +52,8 @@ export interface ComparisonQuote {
   badges: string[]
   tag: string | null
   savingsFromAverage: number | null
+  /** Optional workmanship warranty line from the backend. */
+  warranty?: string | null
 }
 
 export interface ComparisonSummary {
@@ -137,9 +135,14 @@ export interface SessionContext {
   trade?: string | null
 }
 
-function serialiseKnownChecklist(checklist: ChecklistData | null | undefined) {
+/** How `knownChecklist` is encoded for the webhook — exported for tests. */
+export function serialiseKnownChecklist(checklist: ChecklistData | null | undefined, trade?: string | null) {
   if (!checklist) return null
-  const known = Object.entries(checklist).filter(([, value]) => value !== null && value !== undefined)
+  // New fencing stores paging state in `_ui`. The whole checklist must round-trip verbatim.
+  if (trade === 'fencing') return JSON.stringify(checklist)
+  const known = Object.entries(checklist).filter(
+    ([key, value]) => key !== '_ui' && value !== null && value !== undefined,
+  )
   return known.length > 0 ? JSON.stringify(Object.fromEntries(known)) : null
 }
 
@@ -149,7 +152,7 @@ export async function sendFencingChatMessage(
   quoteFiles?: File[] | null,
   session?: SessionContext,
 ): Promise<FencingChatResponse> {
-  const knownChecklist = serialiseKnownChecklist(session?.knownChecklist)
+  const knownChecklist = serialiseKnownChecklist(session?.knownChecklist, session?.trade)
   const place = session?.place ? JSON.stringify(session.place) : null
   // Sent even when it is 0 — 0 is the value that means something. A truthiness check here would
   // drop exactly the turn the workflow needs to recognise.

@@ -26,7 +26,13 @@ type Stage = 'hero' | 'chat' | 'thinking'
 
 // What a homepage chip locks the backend onto. Chips not listed here still go to chat;
 // the workflow reads the description and picks the trade itself.
-const CHIP_TRADE: Record<string, string> = { Fence: 'fencing' }
+const CHIP_TRADE: Record<string, string> = {
+  Fence: 'fencing',
+  Deck: 'decking',
+  'Retaining Wall': 'retaining-wall',
+  Tiling: 'tiling',
+}
+const KNOWN_TRADES = new Set(Object.values(CHIP_TRADE))
 
 // A turn that is asking where the job is. The workflow says so with `expects`, but the client
 // does not depend on it getting that right: a suburb typed as free text silently matches zero
@@ -169,7 +175,10 @@ export function Home({
       // Only overwrite when this turn actually carries a checklist — a "what should I fix?"
       // acknowledgement or similar aside may legitimately omit it. Keeping the last-known
       // checklist means the sidebar never blanks out mid-conversation.
-      if (response.trade) setTrade(response.trade)
+      // Locked the same way intent is: first known slug wins. An empty string means the
+      // workflow is still asking which trade it is, and a later 'fencing' from a mis-routed
+      // confirm turn must not replace a chip (or an earlier backend lock) already on the session.
+      if (!trade && response.trade && KNOWN_TRADES.has(response.trade)) setTrade(response.trade)
       if (response.checklist) setChecklist(response.checklist)
       setChecklistComplete(response.checklistComplete ?? false)
 
@@ -425,6 +434,7 @@ export function Home({
             messages={messages}
             isLoading={isLoading}
             pendingFiles={pendingFiles}
+            trade={trade}
             onSend={handleSend}
             onSelectOption={handleSelectOption}
             onSelectPlace={handleSelectPlace}

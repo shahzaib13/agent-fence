@@ -1,6 +1,6 @@
 import type { ComparisonQuote, ComparisonSummary } from './fencingChat'
 import type { QuoteSession } from './quotes'
-import { checklistFieldLabel, formatChecklistValue } from '../utils/checklist'
+import { BRIEF_HIDDEN_KEYS, checklistFieldLabel, formatChecklistValue } from '../utils/checklist'
 
 export interface AiSummaryBriefRow {
   label: string
@@ -52,7 +52,9 @@ function withoutNullish<T>(value: T): T {
 export function buildAiSummary(session: QuoteSession): Omit<AiSummary, 'quote'> {
   const brief: AiSummaryBriefRow[] = []
   for (const [field, value] of Object.entries(session.checklist ?? {})) {
+    if (BRIEF_HIDDEN_KEYS.has(field)) continue
     if (value === null || value === undefined || value === '') continue
+    if (typeof value === 'object' && !Array.isArray(value)) continue
     brief.push({
       label: checklistFieldLabel(field),
       value: String(formatChecklistValue(field, value)),

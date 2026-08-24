@@ -232,6 +232,7 @@ export function InstantQuoteFlow({
           sessionId: quoteSession.sessionId,
           aiChatPdfUrl,
           place,
+          trade: quoteSession.trade,
           businesses: selectedQuotes.flatMap((quote) =>
             quote.businessId ? [{ id: quote.businessId, autoAcceptsAi: quote.autoAcceptsAi === true }] : [],
           ),

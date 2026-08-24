@@ -4,10 +4,9 @@ import { checklistFieldLabel, formatChecklistValue, showsInBrief } from '../util
 export function ChecklistRows({ checklist }: { checklist: ChecklistData }) {
   return (
     <ul className="flex flex-col gap-4">
-      {/* An empty row is a promise that the question is still coming. Fields nobody is going to
-          ask about — an existing quote, site access with nothing to remove — drop out until they
-          actually have a value, rather than sitting there greyed out forever. */}
-      {Object.entries(checklist).filter(([key]) => showsInBrief(key, checklist)).map(([key, value]) => {
+      {Object.entries(checklist)
+        .filter(([key]) => showsInBrief(key, checklist))
+        .map(([key, value]) => {
         const done = value !== null
         return (
           <li key={key} className="flex items-center gap-3">

@@ -41,28 +41,70 @@ function CheckBadge() {
   )
 }
 
-// "Other" swaps the tiles for a box rather than sending anything: the point of the option is
-// that the real answer isn't on the row. What comes back is a normal answer, so everything
-// downstream — the collapsed chip, the checklist, the workflow — sees a plain number.
+// "Other" swaps the tiles for a box rather than sending anything. Legacy flows use a numeric
+// length box; the new fencing flow accepts any free-text answer.
 function CustomAnswer({
+  mode,
   disabled,
   onSubmit,
   onCancel,
 }: {
+  mode: 'numeric' | 'text'
   disabled: boolean
-  onSubmit: (metres: number) => void
+  onSubmit: (value: string | number) => void
   onCancel: () => void
 }) {
   const [value, setValue] = useState('')
   const metres = Number(value)
-  // A fence is somewhere between a gate's width and a paddock's edge; outside that it is a typo.
-  const isUsable = Number.isFinite(metres) && metres > 0 && metres <= 1000
+  const isNumericUsable = Number.isFinite(metres) && metres > 0 && metres <= 1000
+  const isTextUsable = value.trim().length > 0
+
+  if (mode === 'text') {
+    return (
+      <form
+        onSubmit={(event) => {
+          event.preventDefault()
+          const trimmed = value.trim()
+          if (isTextUsable && !disabled) onSubmit(trimmed)
+        }}
+        className="flex flex-wrap items-center gap-2.5 animate-[card-rise_0.3s_ease-out_backwards]"
+      >
+        <label htmlFor="custom-answer" className="sr-only">
+          Your answer
+        </label>
+        <input
+          id="custom-answer"
+          type="text"
+          autoFocus
+          disabled={disabled}
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="Type your answer"
+          className="min-w-48 flex-1 rounded-2xl border border-[#062D27]/40 bg-white px-4 py-3 text-sm font-medium text-[#062D27] placeholder:text-gray-300 focus:outline-none focus:shadow-[0_4px_20px_rgba(6,45,39,0.06)] disabled:cursor-not-allowed"
+        />
+        <button
+          type="submit"
+          disabled={!isTextUsable || disabled}
+          className="rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+        >
+          Use this
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-2xl px-3 py-3 text-sm font-medium text-gray-500 transition-colors hover:text-[#062D27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+        >
+          Back to options
+        </button>
+      </form>
+    )
+  }
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault()
-        if (isUsable && !disabled) onSubmit(metres)
+        if (isNumericUsable && !disabled) onSubmit(metres)
       }}
       className="flex flex-wrap items-center gap-2.5 animate-[card-rise_0.3s_ease-out_backwards]"
     >
@@ -88,7 +130,7 @@ function CustomAnswer({
       </div>
       <button
         type="submit"
-        disabled={!isUsable || disabled}
+        disabled={!isNumericUsable || disabled}
         className="rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
       >
         Use this
@@ -107,10 +149,12 @@ function CustomAnswer({
 function OptionRow({
   message,
   disabled,
+  otherInputMode,
   onSelect,
 }: {
   message: ChatMessage
   disabled: boolean
+  otherInputMode: 'numeric' | 'text'
   onSelect: (option: ChatOption) => void
 }) {
   const [isEnteringOther, setIsEnteringOther] = useState(false)
@@ -119,9 +163,14 @@ function OptionRow({
   if (isEnteringOther && !answered) {
     return (
       <CustomAnswer
+        mode={otherInputMode}
         disabled={disabled}
         onCancel={() => setIsEnteringOther(false)}
-        onSubmit={(metres) => onSelect({ label: `${metres}m`, value: metres })}
+        onSubmit={(value) =>
+          onSelect(
+            typeof value === 'number' ? { label: `${value}m`, value } : { label: value, value },
+          )
+        }
       />
     )
   }
@@ -170,6 +219,7 @@ function AiTurn({
   animate,
   disabled,
   isLast,
+  otherInputMode,
   onSelect,
   onSelectPlace,
   onRetry,
@@ -179,6 +229,7 @@ function AiTurn({
   animate: boolean
   disabled: boolean
   isLast: boolean
+  otherInputMode: 'numeric' | 'text'
   onSelect: (option: ChatOption) => void
   onSelectPlace: (place: SuburbPlace) => void
   onRetry: () => void
@@ -248,7 +299,7 @@ function AiTurn({
           />
         )}
         {revealDone && hasOptions && !message.isConfirmation && (
-          <OptionRow message={message} disabled={disabled} onSelect={onSelect} />
+          <OptionRow message={message} disabled={disabled} otherInputMode={otherInputMode} onSelect={onSelect} />
         )}
 
         {/* A suburb turn answers itself through the picker, so the composer never has to carry
@@ -263,6 +314,7 @@ function AiTurn({
         )}
         {revealDone && message.expects === 'suburb' && !message.answered && isLast && (
           <SuburbPicker
+            key={message.sessionToken ?? message.id}
             initialQuery={message.query}
             initialSuggestions={message.suggestions}
             sessionToken={message.sessionToken}
@@ -368,6 +420,7 @@ export function ChatWindow({
   messages,
   isLoading,
   pendingFiles,
+  trade,
   onSend,
   onSelectOption,
   onSelectPlace,
@@ -377,11 +430,14 @@ export function ChatWindow({
   isLoading: boolean
   /** Attachments riding on the in-flight turn — they decide what the wait says it's doing. */
   pendingFiles?: File[] | null
+  /** When `fencing`, "Other" opens a free-text box instead of a metres-only length field. */
+  trade?: string | null
   onSend: (text: string) => void
   onSelectOption: (messageId: string, option: ChatOption) => void
   onSelectPlace: (messageId: string, place: SuburbPlace) => void
   onRetry: () => void
 }) {
+  const otherInputMode = trade === 'fencing' ? 'text' : 'numeric'
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
@@ -433,11 +489,10 @@ export function ChatWindow({
               <AiTurn
                 key={message.id}
                 message={message}
-                // Only the newest reply streams in; scrolling back through history must not
-                // replay every message that came before it.
                 animate={message.id === lastAiId}
                 disabled={isLoading}
                 isLast={message.id === lastAiId}
+                otherInputMode={otherInputMode}
                 onSelect={(option) => onSelectOption(message.id, option)}
                 onSelectPlace={(place) => onSelectPlace(message.id, place)}
                 onRetry={onRetry}

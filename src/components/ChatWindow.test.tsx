@@ -18,6 +18,7 @@ function renderWindow(messages: ChatMessage[], isLoading = false, handlers: Part
     <ChatWindow
       messages={messages}
       isLoading={isLoading}
+      trade={handlers.trade}
       onSend={handlers.onSend ?? (() => {})}
       onSelectOption={handlers.onSelectOption ?? (() => {})}
       onSelectPlace={handlers.onSelectPlace ?? (() => {})}
@@ -134,7 +135,21 @@ describe('ChatWindow', () => {
       ],
     }
 
-    it('opens a box instead of sending "Other" anywhere', async () => {
+    it('opens a free-text box for fencing Other answers', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption, trade: 'fencing' })
+      const user = userEvent.setup()
+
+      await user.click(await screen.findByRole('button', { name: 'Other' }))
+
+      expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
+      await user.type(screen.getByLabelText(/your answer/i), 'chainmesh')
+      await user.click(screen.getByRole('button', { name: /use this/i }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: 'chainmesh', value: 'chainmesh' })
+    })
+
+    it('opens a metres box instead of sending "Other" anywhere', async () => {
       const onSelectOption = vi.fn()
       renderWindow([lengthQuestion], false, { onSelectOption })
       const user = userEvent.setup()

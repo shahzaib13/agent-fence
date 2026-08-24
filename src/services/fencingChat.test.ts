@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { api } from './api'
-import { sendFencingChatMessage } from './fencingChat'
+import { serialiseKnownChecklist, sendFencingChatMessage } from './fencingChat'
 
 vi.mock('./api', () => ({
   api: { post: vi.fn() },
@@ -61,7 +61,7 @@ describe('sendFencingChatMessage', () => {
     )
   })
 
-  it('sends only the checklist fields that are actually known', async () => {
+  it('sends only the checklist fields that are actually known for non-fencing trades', async () => {
     const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
     mockedPost.mockResolvedValue({ data: payload })
 
@@ -74,6 +74,37 @@ describe('sendFencingChatMessage', () => {
       { message: 'hello', sessionId: 's1', trade: '', knownChecklist: '{"suburb":"Pakenham","lengthMeters":20}' },
       expect.anything(),
     )
+  })
+
+  it('round-trips the full fencing checklist, including _ui and null fields', async () => {
+    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
+    mockedPost.mockResolvedValue({ data: payload })
+
+    const checklist = {
+      suburb: 'Pakenham',
+      material: null,
+      lengthMeters: 20,
+      _ui: { step: 'material', page: 1 },
+    }
+
+    await sendFencingChatMessage('hello', 's1', null, { trade: 'fencing', knownChecklist: checklist })
+
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      expect.any(String),
+      {
+        message: 'hello',
+        sessionId: 's1',
+        trade: 'fencing',
+        knownChecklist: JSON.stringify(checklist),
+      },
+      expect.anything(),
+    )
+  })
+
+  it('serialiseKnownChecklist preserves fencing verbatim', () => {
+    const checklist = { suburb: null, material: 'colorbond', _ui: { page: 2 } }
+    expect(serialiseKnownChecklist(checklist, 'fencing')).toBe(JSON.stringify(checklist))
+    expect(serialiseKnownChecklist(checklist, 'tiling')).toBe('{"material":"colorbond"}')
   })
 
   it('omits knownChecklist entirely when nothing is known yet', async () => {
