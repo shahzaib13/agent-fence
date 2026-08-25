@@ -6,6 +6,8 @@ const set = vi.fn()
 const commit = vi.fn(async () => {})
 /** Which document paths Firestore already holds — drives both the user and job-id checks. */
 const exists = vi.fn((_path: string) => false)
+/** Business doc payloads keyed by path — drives isAiAutoAcceptEnabled lookups. */
+const businessData = vi.fn((_path: string): Record<string, unknown> | undefined => undefined)
 
 vi.mock('./firebase', () => ({ getDb: async () => ({ db: true }) }))
 vi.mock('geofire-common', () => ({ geohashForLocation: () => 'r1prqs0tmr' }))
@@ -19,7 +21,10 @@ vi.mock('firebase/firestore', () => ({
       this.longitude = longitude
     }
   },
-  getDoc: async (ref: { path: string }) => ({ exists: () => exists(ref.path) }),
+  getDoc: async (ref: { path: string }) => ({
+    exists: () => exists(ref.path),
+    data: () => businessData(ref.path),
+  }),
   serverTimestamp: () => 'SERVER_TS',
   writeBatch: () => ({ set, commit }),
 }))
@@ -67,6 +72,13 @@ describe('submitJob', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     exists.mockReturnValue(false)
+    // Default: live flag matches the session hint on the lead.
+    businessData.mockImplementation((path) => {
+      if (path === 'businesses/biz-1') return { isAiAutoAcceptEnabled: false }
+      if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: true }
+      return undefined
+    })
+    exists.mockImplementation((path) => path.startsWith('businesses/biz-'))
   })
 
   it('writes the job and the customer in one batch', async () => {
@@ -98,7 +110,7 @@ describe('submitJob', () => {
 
     expect(job).toMatchObject({
       type: 'job',
-      status: 'open',
+      status: 'accepted',
       jobType: 'fencing',
       category: 'Fencing',
       title: 'Fence Installation',
@@ -132,7 +144,12 @@ describe('submitJob', () => {
     })
 
     vi.clearAllMocks()
-    exists.mockReturnValue(false)
+    exists.mockImplementation((path) => path.startsWith('businesses/biz-'))
+    businessData.mockImplementation((path) => {
+      if (path === 'businesses/biz-1') return { isAiAutoAcceptEnabled: false }
+      if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: true }
+      return undefined
+    })
     await submitJob({ ...lead, trade: 'plumbing' })
     expect(written('jobs').data).toMatchObject({
       jobType: 'fencing',
@@ -158,17 +175,75 @@ describe('submitJob', () => {
     expect(locationData).toMatchObject({ suburb: 'Pakenham', stateFullName: 'Victoria' })
   })
 
-  it('drops a copy into each picked business, accepted only where the AI toggle is on', async () => {
+  it('drops a copy into each picked business, accepted only where isAiAutoAcceptEnabled is on', async () => {
     await submitJob(lead)
 
     const waiting = written('businesses/biz-1')
     expect(waiting.path).toMatch(/^businesses\/biz-1\/incoming_jobs\/VI-\d{5}$/)
     expect(waiting.data).toMatchObject({ businessId: 'biz-1', status: 'open' })
     expect(waiting.data).not.toHaveProperty('autoAccepted')
+    expect(waiting.data).not.toHaveProperty('acceptedAt')
 
     const accepted = written('businesses/biz-2')
     expect(accepted.path).toMatch(/^businesses\/biz-2\/accepted_jobs\/VI-\d{5}$/)
-    expect(accepted.data).toMatchObject({ businessId: 'biz-2', status: 'accepted', autoAccepted: true })
+    expect(accepted.data).toMatchObject({
+      businessId: 'biz-2',
+      status: 'accepted',
+      autoAccepted: true,
+      acceptedAt: 'SERVER_TS',
+      uid: lead.uid,
+      jobId: expect.stringMatching(/^VI-\d{5}$/),
+    })
+  })
+
+  it('prefers live isAiAutoAcceptEnabled over a stale session hint', async () => {
+    // Session said false for both; Firestore says biz-1 opted in.
+    businessData.mockImplementation((path) => {
+      if (path === 'businesses/biz-1') return { isAiAutoAcceptEnabled: true }
+      if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: false }
+      return undefined
+    })
+
+    await submitJob({
+      ...lead,
+      businesses: [
+        { id: 'biz-1', autoAcceptsAi: false },
+        { id: 'biz-2', autoAcceptsAi: true },
+      ],
+    })
+
+    expect(written('businesses/biz-1').path).toMatch(/accepted_jobs/)
+    expect(written('businesses/biz-2').path).toMatch(/incoming_jobs/)
+    expect(written('jobs').data.status).toBe('accepted')
+  })
+
+  it('falls back to the session hint when the business doc is missing', async () => {
+    exists.mockReturnValue(false)
+    businessData.mockReturnValue(undefined)
+
+    await submitJob(lead)
+
+    expect(written('businesses/biz-1').path).toMatch(/incoming_jobs/)
+    expect(written('businesses/biz-2').path).toMatch(/accepted_jobs/)
+  })
+
+  it('keeps the job open when nobody has AI auto-accept enabled', async () => {
+    businessData.mockImplementation((path) => {
+      if (path.startsWith('businesses/')) return { isAiAutoAcceptEnabled: false }
+      return undefined
+    })
+
+    await submitJob({
+      ...lead,
+      businesses: [
+        { id: 'biz-1', autoAcceptsAi: false },
+        { id: 'biz-2', autoAcceptsAi: false },
+      ],
+    })
+
+    expect(written('jobs').data.status).toBe('open')
+    expect(written('businesses/biz-1').path).toMatch(/incoming_jobs/)
+    expect(written('businesses/biz-2').path).toMatch(/incoming_jobs/)
   })
 
   it('gives the business the whole job, not a pointer to it', async () => {
@@ -209,6 +284,7 @@ describe('submitJob', () => {
   it('picks another number rather than overwriting a job that already has that id', async () => {
     let firstJobCheck = true
     exists.mockImplementation((path) => {
+      if (path.startsWith('businesses/biz-')) return true
       if (!path.startsWith('jobs')) return false
       const taken = firstJobCheck
       firstJobCheck = false
@@ -224,14 +300,16 @@ describe('submitJob', () => {
   })
 
   it('gives up instead of replacing somebody when every id it tries is taken', async () => {
-    exists.mockImplementation((path) => path.startsWith('jobs'))
+    exists.mockImplementation((path) => path.startsWith('jobs') || path.startsWith('businesses/biz-'))
 
     await expect(submitJob(lead)).rejects.toThrow(/job number/i)
     expect(set).not.toHaveBeenCalled()
   })
 
   it('keeps one account per phone number, however many jobs they post', async () => {
-    exists.mockImplementation((path) => path === 'users/923029447610')
+    exists.mockImplementation(
+      (path) => path === 'users/923029447610' || path.startsWith('businesses/biz-'),
+    )
     await submitJob(lead)
 
     // No users/{phone}_{jobId} mirror: the job lives in jobs/, and only there
@@ -254,7 +332,14 @@ describe('submitJob', () => {
     expect(written('users').data).toMatchObject({ isVerified: true, createdAt: 'SERVER_TS' })
 
     vi.clearAllMocks()
-    exists.mockImplementation((path) => path === 'users/923029447610')
+    exists.mockImplementation(
+      (path) => path === 'users/923029447610' || path.startsWith('businesses/biz-'),
+    )
+    businessData.mockImplementation((path) => {
+      if (path === 'businesses/biz-1') return { isAiAutoAcceptEnabled: false }
+      if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: true }
+      return undefined
+    })
     await submitJob(lead)
     expect(written('users').data).not.toHaveProperty('createdAt')
   })

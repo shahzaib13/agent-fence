@@ -4,7 +4,7 @@
 //   jobs/{VI-48291}                                the job itself
 //   users/{phone}                                  the customer's account, one per phone number
 //   businesses/{uid}/incoming_jobs/{VI-48291}      a copy for each business that was picked,
-//   businesses/{uid}/accepted_jobs/{VI-48291}      or straight into accepted when they auto-accept
+//   businesses/{uid}/accepted_jobs/{VI-48291}      or straight into accepted when they AI-auto-accept
 //
 // Three fields the web form writes are deliberately absent, because this flow never asks for
 // them: jobDescription, timeline, and the photo urls. Everything else matches the existing
@@ -37,7 +37,10 @@ export interface JobLead {
    * job search is the one thing that won't find it.
    */
   place: SuburbPlace | null
-  /** The businesses the customer ticked, and whether each one takes AI leads automatically. */
+  /**
+   * The businesses the customer ticked. `autoAcceptsAi` is a session hint from matching;
+   * `submitJob` re-reads `isAiAutoAcceptEnabled` on each business doc as the source of truth.
+   */
   businesses: { id: string; autoAcceptsAi: boolean }[]
   /** The conversation this quote came out of, so the job can be traced back to it. */
   sessionId: string
@@ -75,6 +78,63 @@ function locationData(place: SuburbPlace) {
   }
 }
 
+type FirestoreGetDoc = (ref: { path: string }) => Promise<{
+  exists: () => boolean
+  data?: () => Record<string, unknown> | undefined
+}>
+
+type FirestoreDoc = (db: unknown, ...path: string[]) => { path: string; id: string }
+
+/**
+ * Whether this business opted into AI Direct Quote auto-accept.
+ * Live `businesses/{id}.isAiAutoAcceptEnabled` wins; session hint is only a fallback when the
+ * business doc is missing or unreadable (rules / network), so a stale quote payload cannot
+ * silently skip `accepted_jobs` for an opted-in tradie.
+ */
+export async function resolveAiAutoAccept(params: {
+  db: unknown
+  doc: FirestoreDoc
+  getDoc: FirestoreGetDoc
+  businessId: string
+  sessionHint: boolean
+}): Promise<boolean> {
+  const { db, doc, getDoc, businessId, sessionHint } = params
+  try {
+    const snap = await getDoc(doc(db, 'businesses', businessId))
+    if (snap.exists()) {
+      const data = typeof snap.data === 'function' ? snap.data() : undefined
+      const live = data?.isAiAutoAcceptEnabled === true
+      console.log('[resolveAiAutoAccept]', {
+        businessId,
+        source: 'live Firestore',
+        isAiAutoAcceptEnabled: data?.isAiAutoAcceptEnabled,
+        sessionHint,
+        resolved: live,
+      })
+      return live
+    }
+    console.log('[resolveAiAutoAccept]', {
+      businessId,
+      source: 'session hint (business doc missing)',
+      sessionHint,
+      resolved: sessionHint,
+    })
+  } catch (error) {
+    console.warn(
+      `[submitJob] Could not read isAiAutoAcceptEnabled for ${businessId}; using session hint.`,
+      error,
+    )
+    console.log('[resolveAiAutoAccept]', {
+      businessId,
+      source: 'session hint (Firestore read failed)',
+      sessionHint,
+      resolved: sessionHint,
+      error: error instanceof Error ? { name: error.name, message: error.message } : error,
+    })
+  }
+  return sessionHint
+}
+
 /**
  * Writes the job, the customer, and a copy for every business that was picked. Returns the
  * generated jobId.
@@ -107,6 +167,27 @@ export async function submitJob(lead: JobLead): Promise<string> {
   if (!jobRef) throw new Error("Couldn't allocate a job number. Try again in a moment.")
   const jobId = jobRef.id
 
+  // Authoritative inbox routing: partner site Messages/Home only list `accepted_jobs`.
+  const routed = await Promise.all(
+    lead.businesses.map(async (business) => ({
+      id: business.id,
+      autoAcceptsAi: await resolveAiAutoAccept({
+        db,
+        doc: doc as unknown as FirestoreDoc,
+        getDoc: getDoc as unknown as FirestoreGetDoc,
+        businessId: business.id,
+        sessionHint: business.autoAcceptsAi === true,
+      }),
+    })),
+  )
+  const anyAiAutoAccepted = routed.some((business) => business.autoAcceptsAi)
+  console.log('[submitJob] routing resolved', {
+    customerUid: lead.uid,
+    sessionHints: lead.businesses.map((b) => ({ id: b.id, autoAcceptsAi: b.autoAcceptsAi })),
+    routed,
+    anyAiAutoAccepted,
+  })
+
   const now = serverTimestamp()
   // Spread in, so no key appears at all when there is no place to describe.
   const location = place ? { location: place.displayLabel, locationData: locationData(place) } : {}
@@ -125,7 +206,8 @@ export async function submitJob(lead: JobLead): Promise<string> {
 
   const job = {
     type: 'job',
-    status: 'open',
+    // At least one opted-in AI auto-accept means the customer already has a connected tradie.
+    status: anyAiAutoAccepted ? 'accepted' : 'open',
     jobId,
     jobType: trade,
     category,
@@ -178,17 +260,44 @@ export async function submitJob(lead: JobLead): Promise<string> {
   )
 
   // Each picked business gets the whole job, not a pointer — their app renders the feed straight
-  // out of this copy. Where it lands is the only difference: a business that takes AI leads
-  // automatically has already accepted it, the rest have it waiting.
-  for (const business of lead.businesses) {
+  // out of this copy. `isAiAutoAcceptEnabled` decides the collection: opted-in → accepted_jobs
+  // (partner Messages/Home light up); otherwise → incoming_jobs (manual Accept still required).
+  for (const business of routed) {
     const inbox = business.autoAcceptsAi ? 'accepted_jobs' : 'incoming_jobs'
-    batch.set(doc(db, 'businesses', business.id, inbox, jobId), {
+    const path = `businesses/${business.id}/${inbox}/${jobId}`
+    const payload = {
       ...job,
       businessId: business.id,
-      ...(business.autoAcceptsAi ? { status: 'accepted', autoAccepted: true } : {}),
+      // Per-business status — do not inherit job-level `accepted` onto waiting inbox copies.
+      ...(business.autoAcceptsAi
+        ? { status: 'accepted', autoAccepted: true, acceptedAt: now }
+        : { status: 'open' }),
+    }
+    // Trace what the partner Messages query would see. `uid` here is the CUSTOMER's phone-auth
+    // Firebase UID (lead.uid), not the business Auth UID. Path + `businessId` are the business.
+    // A partner query of where('uid', '==', businessAuthUid) will never match this field.
+    console.log('[submitJob] inbox write', {
+      path,
+      inbox,
+      autoAcceptsAi: business.autoAcceptsAi,
+      businessId: payload.businessId,
+      customerUid: payload.uid,
+      userId: payload.userId,
+      jobId: payload.jobId,
+      status: payload.status,
+      autoAccepted: 'autoAccepted' in payload ? payload.autoAccepted : undefined,
+      matchedBusinessIds: payload.matchedBusinessIds,
+      source: payload.source,
     })
+    batch.set(doc(db, 'businesses', business.id, inbox, jobId), payload)
   }
 
   await batch.commit()
+  console.log('[submitJob] batch committed', {
+    jobId,
+    customerUid: lead.uid,
+    anyAiAutoAccepted,
+    routed: routed.map((b) => ({ businessId: b.id, autoAcceptsAi: b.autoAcceptsAi })),
+  })
   return jobId
 }
