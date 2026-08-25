@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { generateId } from '../utils/id'
 
-const PROJECT_TYPES = ['Fence', 'Deck', 'Pergola', 'Retaining Wall', 'Driveway', 'Bathroom', 'Kitchen', 'Extension']
+const PROJECT_TYPES = ['Fence', 'Tiling', 'Deck', 'Pergola', 'Retaining Wall', 'Driveway', 'Bathroom', 'Kitchen', 'Extension']
 
 function IconButton({ label, path, onClick }: { label: string; path: string; onClick?: () => void }) {
   return (

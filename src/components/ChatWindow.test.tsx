@@ -18,6 +18,7 @@ function renderWindow(messages: ChatMessage[], isLoading = false, handlers: Part
     <ChatWindow
       messages={messages}
       isLoading={isLoading}
+      trade={handlers.trade}
       onSend={handlers.onSend ?? (() => {})}
       onSelectOption={handlers.onSelectOption ?? (() => {})}
       onSelectPlace={handlers.onSelectPlace ?? (() => {})}
@@ -77,6 +78,31 @@ describe('ChatWindow', () => {
     expect(screen.getByRole('button', { name: 'Timber' })).toBeInTheDocument()
   })
 
+  it('shows Try again on retryable errors and hides it when retryable is false', () => {
+    renderWindow([
+      {
+        id: 'err-1',
+        role: 'ai',
+        text: "We're a bit busy right now.",
+        isError: true,
+        retryable: true,
+      },
+    ])
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
+
+    cleanup()
+    renderWindow([
+      {
+        id: 'err-2',
+        role: 'ai',
+        text: "That file type isn't something I can read.",
+        isError: true,
+        retryable: false,
+      },
+    ])
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+  })
+
   it('passes the picked option back with the message it belongs to', async () => {
     const user = userEvent.setup()
     const onSelectOption = vi.fn()
@@ -134,7 +160,21 @@ describe('ChatWindow', () => {
       ],
     }
 
-    it('opens a box instead of sending "Other" anywhere', async () => {
+    it('opens a free-text box for fencing Other answers', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption, trade: 'fencing' })
+      const user = userEvent.setup()
+
+      await user.click(await screen.findByRole('button', { name: 'Other' }))
+
+      expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
+      await user.type(screen.getByLabelText(/your answer/i), 'chainmesh')
+      await user.click(screen.getByRole('button', { name: /use this/i }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: 'chainmesh', value: 'chainmesh' })
+    })
+
+    it('opens a metres box instead of sending "Other" anywhere', async () => {
       const onSelectOption = vi.fn()
       renderWindow([lengthQuestion], false, { onSelectOption })
       const user = userEvent.setup()

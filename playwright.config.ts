@@ -8,7 +8,10 @@ export default defineConfig({
     reuseExistingServer: true,
     // The suburb picker only renders when a Places key exists, and the specs intercept the
     // Google calls anyway — so the browser needs a key present, never a working one.
-    env: { VITE_GOOGLE_MAPS_API_KEY: 'e2e-test-key' },
+    env: {
+      VITE_GOOGLE_MAPS_API_KEY: 'e2e-test-key',
+      VITE_FENCING_CHAT_URL: 'http://fencing-chat.test/api/v1/client/fencing-chat',
+    },
   },
   use: {
     baseURL: 'http://localhost:5173',

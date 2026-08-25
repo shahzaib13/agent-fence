@@ -43,7 +43,7 @@ export interface SuburbPlace {
   country: string
   /** 'Australia' */
   countryName: string
-  /** What the customer sees and what gets sent to n8n: "Pakenham, VIC 3810". */
+  /** What the customer sees and what gets sent with the place object: "Pakenham, VIC 3810". */
   displayLabel: string
   /** Google's own, minus the country: "Pakenham VIC 3810". */
   formattedAddress: string

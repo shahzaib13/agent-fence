@@ -6,6 +6,8 @@ import { HeroInputScreen } from '../components/HeroInputScreen'
 import { QuoteComparisonPage } from '../components/QuoteComparisonPage'
 import { ThinkingScreen } from '../components/ThinkingScreen'
 import {
+  FENCING_CHAT_FALLBACK_MESSAGE,
+  FencingChatError,
   sendFencingChatMessage,
   type ChatOption,
   type ChecklistData,
@@ -26,7 +28,13 @@ type Stage = 'hero' | 'chat' | 'thinking'
 
 // What a homepage chip locks the backend onto. Chips not listed here still go to chat;
 // the workflow reads the description and picks the trade itself.
-const CHIP_TRADE: Record<string, string> = { Fence: 'fencing' }
+const CHIP_TRADE: Record<string, string> = {
+  Fence: 'fencing',
+  Deck: 'decking',
+  'Retaining Wall': 'retaining-wall',
+  Tiling: 'tiling',
+}
+const KNOWN_TRADES = new Set(Object.values(CHIP_TRADE))
 
 // A turn that is asking where the job is. The workflow says so with `expects`, but the client
 // does not depend on it getting that right: a suburb typed as free text silently matches zero
@@ -128,40 +136,16 @@ export function Home({
     if (isFinalConfirm) setStage('thinking')
 
     try {
+      // Checklist goes back exactly as the API gave it — including `_ui`. Never rebuild or
+      // null fields out; that is what breaks "more options" paging and re-asks answered questions.
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles, {
-        intent,
-        // Completed exchanges, not messages: 0 means the workflow has never successfully
-        // replied, which is how it knows to ask permission rather than fire a checklist
-        // question at somebody who has not agreed to answer any.
-        //
-        // Errors are excluded deliberately. A first message that failed and is being retried is
-        // still the opening turn — counting the failure would skip the consent step on the one
-        // attempt that actually reaches the customer. A reopened conversation arrives with its
-        // saved replies already in state, so it is correctly never 0 again.
-        turn: messages.filter((m) => m.role === 'ai' && !m.isError).length,
-        // A suburb with no place behind it is not established, however confident the agent was
-        // when it wrote it down. Withholding it is what makes the agent ask again instead of
-        // building a whole brief on a name that was never on the map.
-        knownChecklist:
-          (confirmedPlace ?? place) || !previousChecklist
-            ? previousChecklist
-            : { ...previousChecklist, suburb: null },
+        knownChecklist: previousChecklist,
         place: confirmedPlace ?? place,
-        trade: trade ?? '',
       })
-      // Locked on the first turn that declares one, never overwritten afterwards. The workflow
-      // re-runs its new_quote/compare_quote classifier on every single turn, and a flip
-      // mid-conversation hands the brief to the other agent — which keeps its own, shorter
-      // checklist, so it recaps early and then re-asks whatever it never collected.
-      // Locked on the first turn that declares one — a classifier re-running every turn used to
-      // flip mid-conversation and hand the brief to a different checklist, and that is still
-      // refused. The one exception is a quote to beat actually arriving, attached or finally
-      // mentioned: that is new information rather than a change of mind, it only ever moves
-      // new_quote -> compare_quote, and it is checked against the price itself rather than
-      // taken on the workflow's word.
-      // Positive, not merely present: a 0 is the workflow's model filling in a field, never a
-      // price anybody was quoted, and treating it as one flips the whole results page to a
-      // comparison against nothing.
+      // Locked on the first turn that declares one. The one exception is a quote to beat
+      // actually arriving (attached or mentioned): that only ever moves new_quote -> compare_quote,
+      // and is checked against the price itself rather than taken on the backend's word alone.
+      // Positive, not merely present: a 0 is never a price anybody was quoted.
       const hasQuoteToBeat = Number(response.checklist?.existingPrice) > 0
       if (response.intent && (!intent || (response.intent === 'compare_quote' && hasQuoteToBeat))) {
         setIntent(response.intent)
@@ -169,7 +153,10 @@ export function Home({
       // Only overwrite when this turn actually carries a checklist — a "what should I fix?"
       // acknowledgement or similar aside may legitimately omit it. Keeping the last-known
       // checklist means the sidebar never blanks out mid-conversation.
-      if (response.trade) setTrade(response.trade)
+      // Locked the same way intent is: first known slug wins. An empty string means the
+      // workflow is still asking which trade it is, and a later 'fencing' from a mis-routed
+      // confirm turn must not replace a chip (or an earlier backend lock) already on the session.
+      if (!trade && response.trade && KNOWN_TRADES.has(response.trade)) setTrade(response.trade)
       if (response.checklist) setChecklist(response.checklist)
       setChecklistComplete(response.checklistComplete ?? false)
 
@@ -182,7 +169,7 @@ export function Home({
       // Page routing (comparison vs. new-quote flow) depends only on `intent`. `type`
       // never decides which page shows — it just describes the payload (result/message/
       // question/etc.) within whichever flow `intent` has already picked. Guarded by
-      // `response.comparison` actually being present: if n8n tags a response
+      // `response.comparison` actually being present: if the API tags a response
       // `intent: 'compare_quote'` without a comparison object (a malformed/inconsistent
       // payload), there's nothing to show on that page — fall back to reading `type`
       // instead of leaving the UI stuck on stale state.
@@ -229,16 +216,51 @@ export function Home({
       // pick from Google's list.
       if (expectsSuburb && response.suggestedSuburb) void prefillSuburb(turnId, response.suggestedSuburb)
     } catch (error) {
-      console.error('Fencing chat webhook request failed:', error)
-      setLastFailedText(apiText)
-      setLastFailedFiles(quoteFiles ?? null)
+      const chatError = error instanceof FencingChatError ? error : null
+      const customerMessage = chatError?.message ?? FENCING_CHAT_FALLBACK_MESSAGE
+      // Unknown failures (malformed body, thrown Error) stay retryable — the customer can try again.
+      const retryable = chatError ? chatError.retryable : true
+      const code = chatError?.code ?? 'client'
+
+      // Dev-only detail — never put `code` / status in the bubble.
+      console.error('[fencing-chat]', {
+        code,
+        status: chatError?.status,
+        retryable,
+        sessionId: chatError?.sessionId ?? sessionId,
+        message: customerMessage,
+      })
+      if (code === 'too_fast') {
+        console.warn(
+          '[fencing-chat] too_fast — likely a client loop (double-send / missing loading guard), not a fast user',
+        )
+      }
+
+      // Error bodies echo the checklist — keep the brief rather than wiping it.
+      if (chatError?.checklist) {
+        setChecklist(chatError.checklist)
+        if (typeof chatError.checklistComplete === 'boolean') {
+          setChecklistComplete(chatError.checklistComplete)
+        }
+      }
+
+      if (retryable) {
+        setLastFailedText(apiText)
+        setLastFailedFiles(quoteFiles ?? null)
+      } else {
+        setLastFailedText(null)
+        setLastFailedFiles(null)
+      }
+
       setMessages((previous) => [
         ...previous,
         {
           id: generateId(),
           role: 'ai',
-          text: 'Sorry, something went wrong on my end — mind trying that again in a moment?',
+          text: customerMessage,
           isError: true,
+          retryable,
+          checklist: chatError?.checklist ?? previousChecklist,
         },
       ])
     } finally {
@@ -425,6 +447,7 @@ export function Home({
             messages={messages}
             isLoading={isLoading}
             pendingFiles={pendingFiles}
+            trade={trade}
             onSend={handleSend}
             onSelectOption={handleSelectOption}
             onSelectPlace={handleSelectPlace}

@@ -44,6 +44,7 @@ const quoteSession: QuoteSession = {
   checklist: { suburb: 'Pakenham, VIC 3810', fenceType: 'Timber' },
   place: null,
   comparison: null,
+  trade: 'fencing',
 }
 
 
@@ -255,6 +256,7 @@ describe('InstantQuoteFlow', () => {
         place: pakenham,
         sessionId: 'sess-1',
         aiChatPdfUrl: 'https://storage/ai.pdf',
+        trade: 'fencing',
         // Each one carries its own AI auto-accept toggle, which decides where its copy lands
         businesses: [
           { id: 'biz-1', autoAcceptsAi: false },

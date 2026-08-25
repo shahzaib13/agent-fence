@@ -49,8 +49,13 @@ export interface QuoteSession {
 
 /** What the list shows for a session, without opening it. */
 export function quoteTitle(session: QuoteSession) {
-  const { fenceType, suburb } = session.checklist ?? {}
-  if (fenceType && suburb) return `${fenceType} fence, ${suburb}`
+  const checklist = session.checklist ?? {}
+  const suburb = checklist.suburb
+  const fenceLabel =
+    session.trade === 'fencing'
+      ? checklist.material ?? checklist.fenceType
+      : checklist.fenceType ?? checklist.material
+  if (fenceLabel && suburb) return `${String(fenceLabel)} fence, ${suburb}`
   if (suburb) return `Fence in ${suburb}`
   const firstAsk = session.messages.find((message) => message.role === 'user')?.text
   return firstAsk?.slice(0, 60) || 'New quote'

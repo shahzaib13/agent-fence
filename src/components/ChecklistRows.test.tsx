@@ -9,6 +9,13 @@ describe('ChecklistRows', () => {
     expect(screen.getByText('Suburb: Berwick')).toBeInTheDocument()
   })
 
+  it('never renders _ui rows', () => {
+    render(<ChecklistRows checklist={{ suburb: 'Berwick', fenceType: null, _ui: { page: 1 } }} />)
+
+    expect(screen.getByText('Suburb: Berwick')).toBeInTheDocument()
+    expect(screen.queryByText('_ui')).not.toBeInTheDocument()
+  })
+
   it('shows a pending dot with no value for a field not yet known', () => {
     render(<ChecklistRows checklist={{ suburb: 'Berwick', fenceType: null }} />)
 

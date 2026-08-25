@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import axios from 'axios'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { api } from './api'
-import { sendFencingChatMessage } from './fencingChat'
+import {
+  FENCING_CHAT_FALLBACK_MESSAGE,
+  FencingChatError,
+  serialiseKnownChecklist,
+  sendFencingChatMessage,
+} from './fencingChat'
 
 vi.mock('./api', () => ({
   api: { post: vi.fn() },
@@ -8,134 +14,201 @@ vi.mock('./api', () => ({
 
 const mockedPost = vi.mocked(api.post)
 
+beforeEach(() => {
+  vi.stubEnv('VITE_FENCING_CHAT_URL', 'https://api.example.test/api/v1/client/fencing-chat')
+})
+
+const ok = {
+  sessionId: 's1',
+  type: 'message' as const,
+  message: 'hi',
+  options: [],
+  results: [],
+  avgRatePerMeter: null,
+}
+
+function axiosErrorWithBody(status: number, data: unknown) {
+  return new axios.AxiosError(
+    'Request failed',
+    'ERR_BAD_RESPONSE',
+    undefined,
+    undefined,
+    {
+      status,
+      data,
+      statusText: 'Error',
+      headers: {},
+      config: { headers: new axios.AxiosHeaders() },
+    },
+  )
+}
+
 describe('sendFencingChatMessage', () => {
   it('returns the response when it matches the expected shape', async () => {
-    const payload = {
-      sessionId: 's1',
-      type: 'message' as const,
-      message: 'hi',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-    }
-    mockedPost.mockResolvedValueOnce({ data: payload })
-
-    await expect(sendFencingChatMessage('hello', 's1')).resolves.toEqual(payload)
+    mockedPost.mockResolvedValueOnce({ data: ok })
+    await expect(sendFencingChatMessage('hello', 's1')).resolves.toEqual(ok)
   })
 
-  it('throws when the webhook returns an empty or malformed body', async () => {
+  it('throws when the API returns an empty or malformed body', async () => {
     mockedPost.mockResolvedValueOnce({ data: '' })
-
     await expect(sendFencingChatMessage('hello', 's1')).rejects.toThrow(/unexpected response shape/i)
   })
 
-  it('sends the locked intent so the workflow stops re-classifying the flow every turn', async () => {
-    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
-    mockedPost.mockResolvedValue({ data: payload })
-
-    await sendFencingChatMessage('hello', 's1', null, { intent: 'compare_quote' })
-    expect(mockedPost).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: '', intent: 'compare_quote' },
-      expect.anything(),
+  it('throws FencingChatError when a non-2xx body is chat-shaped', async () => {
+    mockedPost.mockRejectedValueOnce(
+      axiosErrorWithBody(503, {
+        type: 'error',
+        code: 'upstream_busy',
+        message: "We're a bit busy right now — give that another go in a moment.",
+        retryable: true,
+        sessionId: 's1',
+        checklist: { suburb: 'Berwick' },
+        options: [],
+        results: [],
+        checklistComplete: false,
+      }),
     )
 
-    // first turn has nothing to lock in yet, and must not send an empty one
-    await sendFencingChatMessage('hello', 's1')
-    expect(mockedPost).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: '' },
-      expect.anything(),
-    )
-  })
-
-  it('sends the stored trade on every turn, including an empty one when none is locked', async () => {
-    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
-    mockedPost.mockResolvedValue({ data: payload })
-
-    await sendFencingChatMessage('hello', 's1', null, { trade: 'fencing' })
-    expect(mockedPost).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: 'fencing' },
-      expect.anything(),
-    )
-  })
-
-  it('sends only the checklist fields that are actually known', async () => {
-    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
-    mockedPost.mockResolvedValue({ data: payload })
-
-    await sendFencingChatMessage('hello', 's1', null, {
-      knownChecklist: { suburb: 'Pakenham', fenceType: null, lengthMeters: 20, heightMm: null },
+    const error = await sendFencingChatMessage('hello', 's1').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(FencingChatError)
+    expect(error).toMatchObject({
+      code: 'upstream_busy',
+      retryable: true,
+      status: 503,
+      sessionId: 's1',
+      checklist: { suburb: 'Berwick' },
+      checklistComplete: false,
+      message: "We're a bit busy right now — give that another go in a moment.",
     })
-
-    expect(mockedPost).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: '', knownChecklist: '{"suburb":"Pakenham","lengthMeters":20}' },
-      expect.anything(),
-    )
   })
 
-  it('omits knownChecklist entirely when nothing is known yet', async () => {
-    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
-    mockedPost.mockResolvedValue({ data: payload })
-
-    await sendFencingChatMessage('hello', 's1', null, { knownChecklist: { suburb: null, fenceType: null } })
-
-    expect(mockedPost).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: '' },
-      expect.anything(),
+  it('marks non-retryable API errors so the UI can hide Try again', async () => {
+    mockedPost.mockRejectedValueOnce(
+      axiosErrorWithBody(429, {
+        type: 'error',
+        code: 'too_fast',
+        message: 'Slow down a touch — that came through twice.',
+        retryable: false,
+        sessionId: 's1',
+        checklist: { suburb: 'Berwick', material: 'Colorbond' },
+        options: [],
+        results: [],
+        checklistComplete: false,
+      }),
     )
+
+    await expect(sendFencingChatMessage('hello', 's1')).rejects.toMatchObject({
+      code: 'too_fast',
+      retryable: false,
+      status: 429,
+    })
   })
 
-  it('sends turn 0, because 0 is the value that means something', async () => {
-    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
-    mockedPost.mockResolvedValue({ data: payload })
+  it('falls back to a retryable customer message when Axios fails without a chat body', async () => {
+    mockedPost.mockRejectedValueOnce(axiosErrorWithBody(502, { ok: false }))
 
-    // The opening description. A truthiness check would drop exactly this turn, and the
-    // workflow would ask a checklist question instead of asking permission first.
-    await sendFencingChatMessage('hello', 's1', null, { turn: 0 })
-    expect(mockedPost).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: '', turn: 0 },
-      expect.anything(),
-    )
+    await expect(sendFencingChatMessage('hello', 's1')).rejects.toMatchObject({
+      code: 'network',
+      retryable: true,
+      status: 502,
+      message: FENCING_CHAT_FALLBACK_MESSAGE,
+    })
+  })
 
-    await sendFencingChatMessage('hello', 's1', null, { turn: 4 })
-    expect(mockedPost).toHaveBeenLastCalledWith(
-      expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: '', turn: 4 },
-      expect.anything(),
-    )
+  it('always sends the four string fields, with empty strings when nothing is known yet', async () => {
+    mockedPost.mockResolvedValue({ data: ok })
 
-    // Not knowing is different from turn 0 — an older caller must not read as the opener.
     await sendFencingChatMessage('hello', 's1')
     expect(mockedPost).toHaveBeenLastCalledWith(
       expect.any(String),
-      { message: 'hello', sessionId: 's1', trade: '' },
+      { message: 'hello', sessionId: 's1', place: '', knownChecklist: '' },
       expect.anything(),
     )
   })
 
-  it('sends turn alongside the files when there are attachments', async () => {
-    const payload = { sessionId: 's1', type: 'message' as const, message: 'hi', options: [], results: [], avgRatePerMeter: null }
-    mockedPost.mockResolvedValue({ data: payload })
+  it('round-trips the full checklist, including _ui and null fields', async () => {
+    mockedPost.mockResolvedValue({ data: ok })
+    const checklist = {
+      suburb: 'Pakenham',
+      material: null,
+      lengthMeters: 20,
+      _ui: { step: 'material', page: 1 },
+    }
 
-    await sendFencingChatMessage('hello', 's1', [new File(['x'], 'q.pdf', { type: 'application/pdf' })], { turn: 0 })
+    await sendFencingChatMessage('hello', 's1', null, { knownChecklist: checklist })
+
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      expect.any(String),
+      {
+        message: 'hello',
+        sessionId: 's1',
+        place: '',
+        knownChecklist: JSON.stringify(checklist),
+      },
+      expect.anything(),
+    )
+  })
+
+  it('serialiseKnownChecklist preserves the checklist verbatim', () => {
+    const checklist = { suburb: null, material: 'colorbond', _ui: { page: 2 } }
+    expect(serialiseKnownChecklist(checklist)).toBe(JSON.stringify(checklist))
+    expect(serialiseKnownChecklist(null)).toBe('')
+    expect(serialiseKnownChecklist(undefined)).toBe('')
+  })
+
+  it('stringifies place when the customer has picked one', async () => {
+    mockedPost.mockResolvedValue({ data: ok })
+    const place = {
+      suburb: 'Berwick',
+      state: 'VIC',
+      stateFullName: 'Victoria',
+      postcode: '3806',
+      country: 'AU',
+      countryName: 'Australia',
+      displayLabel: 'Berwick, VIC 3806',
+      formattedAddress: 'Berwick VIC 3806',
+      latitude: -38.03,
+      longitude: 145.34,
+      placeId: 'ChIJ',
+      placeTypes: ['locality'],
+      name: 'Berwick',
+    }
+
+    await sendFencingChatMessage('Berwick', 's1', null, { place })
+
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      expect.any(String),
+      {
+        message: 'Berwick',
+        sessionId: 's1',
+        place: JSON.stringify(place),
+        knownChecklist: '',
+      },
+      expect.anything(),
+    )
+  })
+
+  it('appends attachments under the files field', async () => {
+    mockedPost.mockResolvedValue({ data: ok })
+    const file = new File(['x'], 'q.pdf', { type: 'application/pdf' })
+
+    await sendFencingChatMessage('hello', 's1', [file], {
+      knownChecklist: { suburb: 'Berwick', _ui: { page: 0 } },
+    })
 
     const sent = mockedPost.mock.lastCall?.[1] as FormData
     expect(sent).toBeInstanceOf(FormData)
-    expect(sent.get('turn')).toBe('0')
-    expect(sent.get('trade')).toBe('')
+    expect(sent.get('message')).toBe('hello')
+    expect(sent.get('sessionId')).toBe('s1')
+    expect(sent.get('place')).toBe('')
+    expect(sent.get('knownChecklist')).toBe(JSON.stringify({ suburb: 'Berwick', _ui: { page: 0 } }))
+    expect(sent.getAll('files')).toHaveLength(1)
+    expect(sent.get('quoteFile')).toBeNull()
   })
 
   it('never hands back a blank message for the thread to render', async () => {
-    // An empty string passes the shape check — it is a string — and then renders as an assistant
-    // bubble with nothing in it, which reads as the app having died mid-sentence. The workflow
-    // is supposed to guarantee a message; this is what happens on the day it does not.
     mockedPost.mockResolvedValueOnce({
-      data: { sessionId: 's1', type: 'message', message: '   ', options: [], results: [], avgRatePerMeter: null },
+      data: { ...ok, message: '   ' },
     })
 
     const response = await sendFencingChatMessage('hello', 's1')

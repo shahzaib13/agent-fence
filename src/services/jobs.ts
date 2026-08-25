@@ -12,9 +12,13 @@
 import type { SuburbPlace } from './places'
 import { getDb } from './firebase'
 
-const TRADE = 'fencing'
-const CATEGORY = 'Fencing'
-const TITLE = 'Fence Installation'
+const TRADE_META: Record<string, { category: string; title: string }> = {
+  fencing: { category: 'Fencing', title: 'Fence Installation' },
+  tiling: { category: 'Tiling', title: 'Tiling Job' },
+  decking: { category: 'Decking', title: 'Decking Installation' },
+  'retaining-wall': { category: 'Retaining Wall', title: 'Retaining Wall Installation' },
+}
+
 /** How a lead from this flow is told apart from one typed into the web form. */
 const SOURCE = 'ai_agent'
 const ID_ATTEMPTS = 5
@@ -39,6 +43,8 @@ export interface JobLead {
   sessionId: string
   /** Where the PDF of that conversation lives. Null when it could not be produced. */
   aiChatPdfUrl: string | null
+  /** Backend/chip trade slug (`fencing`, `tiling`, `decking`, `retaining-wall`). */
+  trade?: string | null
 }
 
 /** Stored, and used as the user document's id, without the leading + — as every record does. */
@@ -83,6 +89,10 @@ export async function submitJob(lead: JobLead): Promise<string> {
   const { place } = lead
   const phone = phoneDigits(lead.phoneE164)
   const matchedBusinessIds = lead.businesses.map((business) => business.id)
+  // Fall back to fencing when the session never locked a known trade (no chip, backend still
+  // detecting) — posting with a blank/unknown jobType would break the partner site's filters.
+  const trade = lead.trade && TRADE_META[lead.trade] ? lead.trade : 'fencing'
+  const { category, title } = TRADE_META[trade]
 
   // The job id is also the document's id, so an id that is already taken would overwrite
   // somebody else's job rather than fail — five digits collide long before they run out.
@@ -117,9 +127,9 @@ export async function submitJob(lead: JobLead): Promise<string> {
     type: 'job',
     status: 'open',
     jobId,
-    jobType: TRADE,
-    category: CATEGORY,
-    title: TITLE,
+    jobType: trade,
+    category,
+    title,
     uid: lead.uid,
     userId: phone,
     fullName: lead.fullName,

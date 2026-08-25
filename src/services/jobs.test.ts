@@ -114,6 +114,33 @@ describe('submitJob', () => {
     })
   })
 
+  it('uses the trade from the lead when it is a known slug', async () => {
+    await submitJob({ ...lead, trade: 'decking' })
+    expect(written('jobs').data).toMatchObject({
+      jobType: 'decking',
+      category: 'Decking',
+      title: 'Decking Installation',
+    })
+  })
+
+  it('falls back to fencing when trade is missing or unknown', async () => {
+    await submitJob({ ...lead, trade: null })
+    expect(written('jobs').data).toMatchObject({
+      jobType: 'fencing',
+      category: 'Fencing',
+      title: 'Fence Installation',
+    })
+
+    vi.clearAllMocks()
+    exists.mockReturnValue(false)
+    await submitJob({ ...lead, trade: 'plumbing' })
+    expect(written('jobs').data).toMatchObject({
+      jobType: 'fencing',
+      category: 'Fencing',
+      title: 'Fence Installation',
+    })
+  })
+
   it('gives the job the geo types the businesses\' nearby search needs', async () => {
     await submitJob(lead)
     const locationData = locationDataOf('jobs')
