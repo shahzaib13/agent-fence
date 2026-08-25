@@ -8,7 +8,7 @@ import { shareTranscriptInChats } from '../services/chat'
 import { buildTranscriptPdf, storeTranscriptForJob } from '../services/transcript'
 import { OTP_LENGTH, RECAPTCHA_CONTAINER_ID, releaseVerifier, sendOtp, verifyOtp, type OtpSession } from '../services/otp'
 import type { SuburbPlace } from '../services/places'
-import { DEFAULT_COUNTRY_CODE, isValidPhone, normalisePhone } from '../utils/phone'
+import { isValidPhone, normalisePhone } from '../utils/phone'
 import { OtpInput } from './OtpInput'
 import { QuoteCard } from './QuoteCard'
 
