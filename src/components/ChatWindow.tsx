@@ -29,6 +29,8 @@ export interface ChatMessage {
   // back (Home diffs the checklist), so the collapsed chip shows the bare label until then.
   answeredField?: string
   isError?: boolean
+  /** When `isError`, whether to show Try again. Omitted on older threads → treat as retryable. */
+  retryable?: boolean
 }
 
 function CheckBadge() {
@@ -277,7 +279,7 @@ function AiTurn({
 
       {/* Everything the turn hands you to act on lines up with the bubble, past the avatar. */}
       <div className="pt-1 pl-12 empty:hidden">
-        {message.isError && (
+        {message.isError && message.retryable !== false && (
           <button
             type="button"
             onClick={onRetry}

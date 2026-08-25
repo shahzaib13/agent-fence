@@ -14,7 +14,7 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
 }) => {
   let call = 0
 
-  await page.route('**/fencing-chat-api', async (route) => {
+  await page.route('**/api/v1/client/fencing-chat', async (route) => {
     call += 1
     // The final ranking turn is the slow one in reality — give it long enough here that the
     // thinking screen is actually observable rather than a flash.
@@ -105,7 +105,7 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
 })
 
 test('other project types open the chat and hit the webhook', async ({ page }) => {
-  await page.route('**/fencing-chat-api', async (route) => {
+  await page.route('**/api/v1/client/fencing-chat', async (route) => {
     await route.fulfill({
       json: {
         sessionId: 'x',

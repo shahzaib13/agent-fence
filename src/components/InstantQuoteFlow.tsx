@@ -192,7 +192,8 @@ export function InstantQuoteFlow({
     if (cleanName.length < 2) nextErrors.fullName = 'Enter your full name.'
     if (!EMAIL_PATTERN.test(cleanEmail)) nextErrors.email = 'Enter an email address we can reach you at.'
     if (!isValidPhone(cleanPhone)) {
-      nextErrors.phone = `Enter a phone number with its country code, like ${DEFAULT_COUNTRY_CODE} 302 944 7610.`
+      nextErrors.phone = `write a valid 10 digits number
+`
     }
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length > 0) return
@@ -387,7 +388,7 @@ export function InstantQuoteFlow({
                 label="Full name"
                 autoComplete="name"
                 maxLength={100}
-                placeholder="Ayesha Khan"
+                placeholder="Jhon Doe"
                 value={fullName}
                 error={errors.fullName}
                 onChange={(event) => setFullName(event.target.value)}
@@ -398,7 +399,7 @@ export function InstantQuoteFlow({
                 type="email"
                 autoComplete="email"
                 maxLength={254}
-                placeholder="you@example.com"
+                placeholder="jhon@example.com"
                 value={email}
                 error={errors.email}
                 onChange={(event) => setEmail(event.target.value)}
@@ -410,10 +411,10 @@ export function InstantQuoteFlow({
                 inputMode="tel"
                 autoComplete="tel"
                 maxLength={20}
-                placeholder={`${DEFAULT_COUNTRY_CODE} 302 944 7610`}
+                placeholder={`04XX XXX XXX`}
                 value={phone}
                 error={errors.phone}
-                hint={`Local numbers are fine — 0302… becomes ${DEFAULT_COUNTRY_CODE}302…`}
+                // hint={`Local numbers are fine — 0302… becomes ${DEFAULT_COUNTRY_CODE}302…`}
                 onChange={(event) => setPhone(event.target.value)}
                 // Normalising on blur shows people the number that will actually be dialled,
                 // instead of silently rewriting it after they've submitted.

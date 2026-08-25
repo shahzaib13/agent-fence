@@ -1,5 +1,71 @@
+import axios from 'axios'
 import { api } from './api'
 import type { SuburbPlace } from './places'
+
+/** Shown when the API fails without a customer-facing body (network drop, empty 5xx, etc.). */
+export const FENCING_CHAT_FALLBACK_MESSAGE =
+  'Sorry, something went wrong on my end — mind trying that again in a moment?'
+
+/** Chat-shaped API error — `message` is written for the customer; `code` is for logs only. */
+export class FencingChatError extends Error {
+  readonly code: string
+  readonly retryable: boolean
+  readonly status: number | undefined
+  readonly sessionId: string | undefined
+  readonly checklist: ChecklistData | null | undefined
+  readonly checklistComplete: boolean | undefined
+
+  constructor(opts: {
+    message: string
+    code: string
+    retryable: boolean
+    status?: number
+    sessionId?: string
+    checklist?: ChecklistData | null
+    checklistComplete?: boolean
+  }) {
+    super(opts.message)
+    this.name = 'FencingChatError'
+    this.code = opts.code
+    this.retryable = opts.retryable
+    this.status = opts.status
+    this.sessionId = opts.sessionId
+    this.checklist = opts.checklist
+    this.checklistComplete = opts.checklistComplete
+  }
+}
+
+interface FencingChatErrorBody {
+  type: 'error'
+  message: string
+  code?: string
+  retryable?: boolean
+  sessionId?: string
+  checklist?: ChecklistData | null
+  checklistComplete?: boolean
+}
+
+function isErrorBody(data: unknown): data is FencingChatErrorBody {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { type?: unknown }).type === 'error' &&
+    typeof (data as { message?: unknown }).message === 'string'
+  )
+}
+
+function fencingChatErrorFromBody(data: FencingChatErrorBody, status?: number): FencingChatError {
+  return new FencingChatError({
+    message: data.message.trim() || FENCING_CHAT_FALLBACK_MESSAGE,
+    code: typeof data.code === 'string' && data.code ? data.code : 'unknown',
+    // Only true when the API says so — retrying a non-retryable code won't help.
+    retryable: data.retryable === true,
+    status,
+    sessionId: data.sessionId,
+    checklist: data.checklist,
+    checklistComplete: data.checklistComplete,
+  })
+}
 
 /**
  * The option that means "none of these". The workflow offers it wherever a tile row cannot
@@ -10,32 +76,28 @@ export const OTHER_OPTION_VALUE = '__other__'
 
 export interface ChatOption {
   label: string
-  // Legacy flows may still send booleans; the new fencing flow uses strings and numbers only.
+  // Values are strings and numbers only on the Node API; booleans remain for older saved threads.
   value: string | number | boolean
 }
 
-// Field keys are whatever the workflow's checklist object currently has. The new fencing flow
-// also carries a `_ui` object for option paging — never display it, always round-trip it.
+// Field keys are whatever the checklist object currently has. Fencing also carries a `_ui`
+// object for option paging — never display it, always round-trip it verbatim.
 export type ChecklistValue = string | number | boolean | null | string[] | Record<string, unknown>
 export type ChecklistData = Record<string, ChecklistValue>
 
 export interface WorkerMatch {
-  // Firestore uid of the business. Optional only so an older workflow export degrades to a
+  // Firestore uid of the business. Optional only so an older payload degrades to a
   // results page you can look at but not hand your details to.
   businessId?: string
   autoAcceptsAi?: boolean
   businessName: string
   // The customer's own suburb, spelled the way the business's service-area record does.
-  // Optional only so a deployment running an older workflow export degrades to hiding the
-  // line rather than showing a wrong one.
   suburb?: string
   ratePerMeter: number
   estimatedTotal: number
   notes: string
 }
 
-// One row of the compare_quote flow's "beat my existing quote" results — shape comes from
-// the n8n "Rank & Format Comparison Response" node (n8n/fencing-workflow-updated.json).
 export interface ComparisonQuote {
   /** Firestore uid — what `matchedBusinessIds` on the job document is made of. */
   businessId?: string
@@ -45,8 +107,6 @@ export interface ComparisonQuote {
   ratePerMeter: number
   projectTotalMin: number
   projectTotalMax: number
-  // Still sent by the workflow, but nothing renders it any more — optional so the client-side
-  // new-quote mapping isn't forced to invent a lead time it has no data for.
   leadTimeWeeksMin?: number
   leadTimeWeeksMax?: number
   badges: string[]
@@ -64,86 +124,65 @@ export interface ComparisonSummary {
   quotes: ComparisonQuote[]
 }
 
+export interface ChecklistDisplayRow {
+  title: string
+  value: string
+}
+
 export interface FencingChatResponse {
   sessionId: string
+  // `comparison_result` kept so older saved threads / fixtures still type-check; the Node API
+  // only emits message | question | confirmation | result.
   type: 'message' | 'question' | 'confirmation' | 'result' | 'comparison_result'
   message: string
   options: ChatOption[]
   results: WorkerMatch[]
   avgRatePerMeter: number | null
   comparison?: ComparisonSummary | null
-  // Present once n8n's intent-router adds it to its final response nodes. Kept optional
-  // since older/other branches may still omit it — routing falls back to `type` when absent.
   intent?: 'new_quote' | 'compare_quote'
-  // Which field this turn is asking for, when the answer needs more than free text. Only
-  // `suburb` today: it swaps the reply box for a Google-backed suburb picker, because a
-  // mistyped suburb doesn't fail loudly — it silently matches zero businesses. Optional, so a
-  // workflow export that doesn't send it yet just falls back to plain typing.
   expects?: 'suburb'
-  // What the customer said, or what an attached quote document showed, when that turn is asking
-  // for the suburb. Never an answer — the picker searches it and still makes them confirm.
   suggestedSuburb?: string
-  // Running checklist of collected project fields, echoed back on every message/question turn
-  // (null once a `result`/`comparison_result` fires). Absent entirely on very old workflow
-  // versions, hence optional.
   checklist?: ChecklistData | null
+  /** Ready-made brief rows — prefer over formatting slugs yourself when present. */
+  checklistDisplay?: ChecklistDisplayRow[]
   checklistComplete?: boolean
-  // Trade the backend routed this turn onto (`fencing`, `tiling`, …). Empty string means it
-  // is still asking which trade it is — the client must not store that, or the lock is lost.
   trade?: string
+  place?: SuburbPlace | null
+  noMatchReason?: string
+  alternatives?: unknown[]
 }
 
-// The production n8n webhook everywhere, local dev included — the test webhook only answers
-// while someone has the n8n canvas open in "listen" mode, so pointing dev at it meant local
-// runs failed unless the workflow was being watched. `VITE_FENCING_CHAT_WEBHOOK_URL` overrides
-// it (set it to the `/webhook-test/` URL when you *do* want to step through the canvas).
-const DEFAULT_FENCING_CHAT_WEBHOOK_URL = 'https://n8n.srv1506542.hstgr.cloud/webhook/fencing-chat-api'
+/**
+ * QuoteMy fencing chat. Prefer `VITE_FENCING_CHAT_URL` (full endpoint), otherwise
+ * `{VITE_QUOTEMY_API_BASE_URL}/api/v1/client/fencing-chat`. `VITE_FENCING_CHAT_WEBHOOK_URL`
+ * is still accepted as an alias so existing env files keep working.
+ */
+function fencingChatUrl(): string {
+  const explicit =
+    (import.meta.env.VITE_FENCING_CHAT_URL as string | undefined)?.trim() ||
+    (import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL as string | undefined)?.trim()
+  if (explicit) return explicit
 
-const FENCING_CHAT_WEBHOOK_URL = import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL ?? DEFAULT_FENCING_CHAT_WEBHOOK_URL
+  const base = (import.meta.env.VITE_QUOTEMY_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '')
+  if (base) return `${base}/api/v1/client/fencing-chat`
+
+  throw new Error(
+    'Fencing chat API URL is not configured. Set VITE_QUOTEMY_API_BASE_URL or VITE_FENCING_CHAT_URL.',
+  )
+}
 
 const VALID_TYPES = ['message', 'question', 'confirmation', 'result', 'comparison_result']
 
-// What the client already knows about this conversation, sent back on every turn. The
-// workflow's agents have no state of their own beyond a rolling chat-memory window, so
-// anything not restated here they have to re-derive from that window — and when they
-// fail to, they ask for it a second time.
+/** Carried across turns — only `knownChecklist` and `place` are sent to the API. */
 export interface SessionContext {
-  // The flow this session was locked into on its first turn, so the workflow stops
-  // re-classifying new_quote vs compare_quote from scratch every turn — a mid-conversation
-  // flip hands the brief to the other agent, which keeps a different checklist and so
-  // recaps early and then re-asks whatever it never collected.
-  intent?: 'new_quote' | 'compare_quote'
-  /**
-   * How many turns are already in the thread. `0` means this is the opening description, which
-   * is the one turn that must not be answered with a checklist question — the workflow asks
-   * permission first instead.
-   *
-   * The workflow cannot work this out for itself: an empty `knownChecklist` looks identical on
-   * turn 0 and on turn 1 when the description established nothing, which is exactly the case
-   * that would ask for consent twice. The client is the only side that knows.
-   */
-  turn?: number
-  // Every checklist field already established, so the agent is told outright what not to
-  // ask about instead of having to remember it.
   knownChecklist?: ChecklistData | null
-  // The confirmed Google place behind `checklist.suburb`. The agent doesn't read it — it's
-  // carried so postcode/state/coordinates/placeId reach the workflow (and later the lead
-  // record) instead of being thrown away the moment the label is sent as text.
   place?: SuburbPlace | null
-  // Last non-empty trade the backend confirmed, or the homepage chip. Empty string means
-  // none is stored yet — the backend should detect from the message.
-  trade?: string | null
 }
 
-/** How `knownChecklist` is encoded for the webhook — exported for tests. */
-export function serialiseKnownChecklist(checklist: ChecklistData | null | undefined, trade?: string | null) {
-  if (!checklist) return null
-  // New fencing stores paging state in `_ui`. The whole checklist must round-trip verbatim.
-  if (trade === 'fencing') return JSON.stringify(checklist)
-  const known = Object.entries(checklist).filter(
-    ([key, value]) => key !== '_ui' && value !== null && value !== undefined,
-  )
-  return known.length > 0 ? JSON.stringify(Object.fromEntries(known)) : null
+/** How `knownChecklist` is encoded — always the last response's checklist, `_ui` and all. */
+export function serialiseKnownChecklist(checklist: ChecklistData | null | undefined) {
+  if (!checklist) return ''
+  return JSON.stringify(checklist)
 }
 
 export async function sendFencingChatMessage(
@@ -152,55 +191,52 @@ export async function sendFencingChatMessage(
   quoteFiles?: File[] | null,
   session?: SessionContext,
 ): Promise<FencingChatResponse> {
-  const knownChecklist = serialiseKnownChecklist(session?.knownChecklist, session?.trade)
-  const place = session?.place ? JSON.stringify(session.place) : null
-  // Sent even when it is 0 — 0 is the value that means something. A truthiness check here would
-  // drop exactly the turn the workflow needs to recognise.
-  const turn = session?.turn ?? null
-  const trade = session?.trade ?? ''
-  let payload:
-    | FormData
-    | { message: string; sessionId: string; intent?: string; knownChecklist?: string; place?: string; turn?: number; trade: string }
-  if (quoteFiles && quoteFiles.length > 0) {
-    payload = new FormData()
-    payload.append('message', message)
-    payload.append('sessionId', sessionId)
-    payload.append('trade', trade)
-    if (session?.intent) payload.append('intent', session.intent)
-    if (knownChecklist) payload.append('knownChecklist', knownChecklist)
-    if (place) payload.append('place', place)
-    if (turn !== null) payload.append('turn', String(turn))
-    // All files go under the same field name in ONE request — n8n's webhook parses
-    // repeated multipart fields into indexed binary keys (quoteFile0, quoteFile1, ...)
-    // and its "Split Attachments by Binary Key" node processes them together in a
-    // single execution, which is what lets it combine results across files.
-    for (const file of quoteFiles) {
-      payload.append('quoteFile', file)
-    }
-  } else {
-    payload = {
-      message,
-      sessionId,
-      trade,
-      ...(session?.intent ? { intent: session.intent } : {}),
-      ...(knownChecklist ? { knownChecklist } : {}),
-      ...(place ? { place } : {}),
-      ...(turn !== null ? { turn } : {}),
-    }
+  const knownChecklist = serialiseKnownChecklist(session?.knownChecklist)
+  const place = session?.place ? JSON.stringify(session.place) : ''
+  const fields = {
+    message,
+    sessionId,
+    place,
+    knownChecklist,
   }
 
-  // Far past the client default, and longer again when files ride along. A compare turn runs a
-  // classifier, an agent and a business lookup before it answers; attachments add the upload
-  // itself plus an extraction pass on top of all that. At 30s these were timing out in the
-  // browser while n8n was still working on them, which reads to the customer as a crash.
-  const timeout = quoteFiles && quoteFiles.length > 0 ? 180_000 : 90_000
-  const { data } = await api.post<FencingChatResponse>(FENCING_CHAT_WEBHOOK_URL, payload, { timeout })
-  if (!data || typeof data.message !== 'string' || !VALID_TYPES.includes(data.type)) {
-    throw new Error(`Fencing chat webhook returned an unexpected response shape: ${JSON.stringify(data)}`)
+  let payload: FormData | typeof fields
+  if (quoteFiles && quoteFiles.length > 0) {
+    payload = new FormData()
+    for (const [key, value] of Object.entries(fields)) payload.append(key, value)
+    for (const file of quoteFiles) {
+      payload.append('files', file)
+    }
+  } else {
+    payload = fields
   }
-  // An empty string is a valid string, so the shape check above lets it through — and the thread
-  // then renders a bubble with nothing in it, which reads as the assistant having died. The
-  // workflow is meant to guarantee a message and mostly does; this is the belt to that braces,
-  // because a blank turn is the one failure the customer cannot interpret or recover from.
-  return data.message.trim() ? data : { ...data, message: 'Sorry — could you say that again?' }
+
+  // Attachments add upload + extraction; the results turn runs a business search.
+  const timeout = quoteFiles && quoteFiles.length > 0 ? 180_000 : 90_000
+  try {
+    const { data } = await api.post<FencingChatResponse>(fencingChatUrl(), payload, { timeout })
+    // Errors are chat-shaped too (and may arrive on a 2xx in older proxies). Prefer the body.
+    if (isErrorBody(data)) throw fencingChatErrorFromBody(data)
+    if (!data || typeof data.message !== 'string' || !VALID_TYPES.includes(data.type)) {
+      throw new Error(`Fencing chat API returned an unexpected response shape: ${JSON.stringify(data)}`)
+    }
+    // An empty string is a valid string, so the shape check above lets it through — and the thread
+    // then renders a bubble with nothing in it, which reads as the assistant having died.
+    return data.message.trim() ? data : { ...data, message: 'Sorry — could you say that again?' }
+  } catch (error) {
+    if (error instanceof FencingChatError) throw error
+    // Non-2xx: body is still chat-shaped (`type: "error"`). Surface that, not Axios noise.
+    if (axios.isAxiosError(error) && isErrorBody(error.response?.data)) {
+      throw fencingChatErrorFromBody(error.response.data, error.response.status)
+    }
+    if (axios.isAxiosError(error)) {
+      throw new FencingChatError({
+        message: FENCING_CHAT_FALLBACK_MESSAGE,
+        code: 'network',
+        retryable: true,
+        status: error.response?.status,
+      })
+    }
+    throw error
+  }
 }

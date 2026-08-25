@@ -61,7 +61,7 @@ async function startAtSuburbQuestion(page: Page) {
 
   const chatBodies: string[] = []
   let call = 0
-  await page.route('**/fencing-chat-api', async (route) => {
+  await page.route('**/api/v1/client/fencing-chat', async (route) => {
     call += 1
     chatBodies.push(route.request().postData() ?? '')
     await route.fulfill({

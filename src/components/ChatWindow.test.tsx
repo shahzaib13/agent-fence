@@ -78,6 +78,31 @@ describe('ChatWindow', () => {
     expect(screen.getByRole('button', { name: 'Timber' })).toBeInTheDocument()
   })
 
+  it('shows Try again on retryable errors and hides it when retryable is false', () => {
+    renderWindow([
+      {
+        id: 'err-1',
+        role: 'ai',
+        text: "We're a bit busy right now.",
+        isError: true,
+        retryable: true,
+      },
+    ])
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
+
+    cleanup()
+    renderWindow([
+      {
+        id: 'err-2',
+        role: 'ai',
+        text: "That file type isn't something I can read.",
+        isError: true,
+        retryable: false,
+      },
+    ])
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+  })
+
   it('passes the picked option back with the message it belongs to', async () => {
     const user = userEvent.setup()
     const onSelectOption = vi.fn()

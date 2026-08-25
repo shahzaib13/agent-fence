@@ -47,8 +47,8 @@ export function QuoteComparisonPage({
   /** The conversation behind these numbers — becomes the PDF attached to the job. */
   quoteSession: QuoteSession
   // Both flows end here — only the headline says which one you came through. Absent (an older
-  // workflow that never reports an intent) reads as a fresh quote, since the compare branch
-  // can't fire without n8n declaring `compare_quote` in the first place.
+  // payload that never reports an intent) reads as a fresh quote, since the compare branch
+  // can't fire without the API declaring `compare_quote` in the first place.
   intent?: 'new_quote' | 'compare_quote'
   onBack: () => void
   /** Absent on a fresh quote, where the thread is one Back away anyway. */
