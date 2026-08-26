@@ -80,9 +80,12 @@ describe('quotes', () => {
     })
 
     it('keeps only the twenty most recent conversations', () => {
+      vi.useFakeTimers()
       for (let index = 0; index < 25; index += 1) {
-        saveQuote(session({ sessionId: `sess-${index}`, updatedAt: index }))
+        vi.setSystemTime(1_000 + index)
+        saveQuote(session({ sessionId: `sess-${index}` }))
       }
+      vi.useRealTimers()
 
       const stored = loadLocalQuotes()
       expect(stored).toHaveLength(20)

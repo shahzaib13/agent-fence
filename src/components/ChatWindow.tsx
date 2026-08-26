@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useWordReveal } from '../hooks/useWordReveal'
-import { OTHER_OPTION_VALUE, type ChatOption, type ChecklistData } from '../services/fencingChat'
+import type { VoiceStatus } from '../hooks/useVoiceCall'
+import {
+  OTHER_OPTION_VALUE,
+  type AlternativeOffer,
+  type ChatOption,
+  type ChecklistData,
+  type ChecklistDisplay,
+} from '../services/fencingChat'
 import type { SuburbPlace, SuburbSuggestion } from '../services/places'
 import { checklistFieldLabel } from '../utils/checklist'
+import { AlternativeOffers } from './AlternativeOffers'
 import { ConfirmationCard } from './ConfirmationCard'
 import { SuburbPicker } from './SuburbPicker'
+import { VoiceBar } from './VoiceBar'
 
 export interface ChatMessage {
   id: string
@@ -20,6 +29,8 @@ export interface ChatMessage {
   // composer. `suggestions`/`query` are only set on the local turn that answers a typed reply —
   // the picker opens pre-loaded with what that text matched, so confirming is one click.
   expects?: 'suburb'
+  alternatives?: AlternativeOffer[]
+  checklistDisplay?: ChecklistDisplay | null
   suggestions?: SuburbSuggestion[]
   query?: string
   // Carried from the search that produced `suggestions` so the details lookup that follows
@@ -43,18 +54,18 @@ function CheckBadge() {
   )
 }
 
-// "Other" swaps the tiles for a box rather than sending anything. Legacy flows use a numeric
-// length box; the new fencing flow accepts any free-text answer.
+// `__other__` is never a button — the box sits next to the real tiles. Legacy flows use a
+// numeric length box; fencing accepts any free-text answer.
 function CustomAnswer({
   mode,
   disabled,
+  autoFocus,
   onSubmit,
-  onCancel,
 }: {
   mode: 'numeric' | 'text'
   disabled: boolean
+  autoFocus?: boolean
   onSubmit: (value: string | number) => void
-  onCancel: () => void
 }) {
   const [value, setValue] = useState('')
   const metres = Number(value)
@@ -77,7 +88,7 @@ function CustomAnswer({
         <input
           id="custom-answer"
           type="text"
-          autoFocus
+          autoFocus={autoFocus}
           disabled={disabled}
           value={value}
           onChange={(event) => setValue(event.target.value)}
@@ -90,13 +101,6 @@ function CustomAnswer({
           className="rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
         >
           Use this
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-2xl px-3 py-3 text-sm font-medium text-gray-500 transition-colors hover:text-[#062D27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
-        >
-          Back to options
         </button>
       </form>
     )
@@ -121,7 +125,7 @@ function CustomAnswer({
           min={1}
           max={1000}
           step="any"
-          autoFocus
+          autoFocus={autoFocus}
           disabled={disabled}
           value={value}
           onChange={(event) => setValue(event.target.value)}
@@ -136,13 +140,6 @@ function CustomAnswer({
         className="rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
       >
         Use this
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        className="rounded-2xl px-3 py-3 text-sm font-medium text-gray-500 transition-colors hover:text-[#062D27] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
-      >
-        Back to options
       </button>
     </form>
   )
@@ -159,59 +156,50 @@ function OptionRow({
   otherInputMode: 'numeric' | 'text'
   onSelect: (option: ChatOption) => void
 }) {
-  const [isEnteringOther, setIsEnteringOther] = useState(false)
   const answered = message.answered
+  const choices = (message.options ?? []).filter((option) => String(option.value) !== OTHER_OPTION_VALUE)
+  const hasOther = (message.options ?? []).some((option) => String(option.value) === OTHER_OPTION_VALUE)
 
-  if (isEnteringOther && !answered) {
+  if (answered) {
+    const pickedFromRow = choices.find((option) => String(option.value) === String(answered.value))
     return (
-      <CustomAnswer
-        mode={otherInputMode}
-        disabled={disabled}
-        onCancel={() => setIsEnteringOther(false)}
-        onSubmit={(value) =>
-          onSelect(
-            typeof value === 'number' ? { label: `${value}m`, value } : { label: value, value },
-          )
-        }
-      />
+      <span className="inline-flex items-center gap-2.5 rounded-2xl border border-[#062D27] bg-[#EFF6F5] px-4 py-2.5 animate-[pop-in_0.35s_ease-out]">
+        <CheckBadge />
+        <span className="text-sm font-semibold text-[#062D27]">
+          {message.answeredField ? `${checklistFieldLabel(message.answeredField)}: ` : ''}
+          {pickedFromRow?.label ?? answered.label}
+        </span>
+      </span>
     )
   }
 
   return (
-    // Negative bottom margin cancels the per-tile `mb-2.5` that keeps wrapped rows apart.
-    <div className="-mb-2.5 flex flex-wrap animate-[card-rise_0.45s_ease-out_backwards]">
-      {message.options?.map((option) => {
-        const picked = !!answered && String(answered.value) === String(option.value)
-        return (
-          <button
-            key={String(option.value)}
-            type="button"
-            disabled={disabled || !!answered}
-            aria-pressed={picked}
-            // Collapsed-away tiles are gone visually, so take them out of the accessibility
-            // tree too rather than leaving five phantom buttons announced on every old turn.
-            aria-hidden={!!answered && !picked}
-            onClick={() => (String(option.value) === OTHER_OPTION_VALUE ? setIsEnteringOther(true) : onSelect(option))}
-            // Unpicked tiles collapse their own width/margin to zero rather than unmounting, so
-            // the picked one glides into its final place instead of the row snapping to a new layout.
-            className={`relative overflow-hidden rounded-2xl border text-left transition-all duration-300 ease-out focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27] ${
-              answered
-                ? picked
-                  ? 'mr-2.5 mb-2.5 border-[#062D27] bg-[#EFF6F5] px-4 py-2.5'
-                  : 'mr-0 mb-2.5 max-w-0 scale-95 border-transparent px-0 py-2.5 opacity-0'
-                : 'mr-2.5 mb-2.5 min-w-36 border-gray-200 bg-white px-4 py-4 hover:-translate-y-0.5 hover:border-[#062D27]/40 hover:shadow-[0_6px_20px_rgba(6,45,39,0.08)] active:translate-y-0 active:scale-[0.98] disabled:pointer-events-none'
-            }`}
-          >
-            <span className="flex items-center gap-2.5">
-              {picked && <CheckBadge />}
-              <span className={`text-sm ${picked ? 'font-semibold text-[#062D27]' : 'font-medium text-gray-700'}`}>
-                {picked && message.answeredField ? `${checklistFieldLabel(message.answeredField)}: ` : ''}
-                {option.label}
-              </span>
-            </span>
-          </button>
-        )
-      })}
+    <div className="flex flex-col gap-3">
+      {choices.length > 0 && (
+        <div className="-mb-2.5 flex flex-wrap animate-[card-rise_0.45s_ease-out_backwards]">
+          {choices.map((option) => (
+            <button
+              key={String(option.value)}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(option)}
+              className="relative mr-2.5 mb-2.5 min-w-36 overflow-hidden rounded-2xl border border-gray-200 bg-white px-4 py-4 text-left transition-all duration-300 ease-out hover:-translate-y-0.5 hover:border-[#062D27]/40 hover:shadow-[0_6px_20px_rgba(6,45,39,0.08)] active:translate-y-0 active:scale-[0.98] disabled:pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+            >
+              <span className="text-sm font-medium text-gray-700">{option.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {hasOther && (
+        <CustomAnswer
+          mode={otherInputMode}
+          disabled={disabled}
+          autoFocus={choices.length === 0}
+          onSubmit={(value) =>
+            onSelect(typeof value === 'number' ? { label: `${value}m`, value } : { label: value, value })
+          }
+        />
+      )}
     </div>
   )
 }
@@ -241,6 +229,7 @@ function AiTurn({
   const revealed = useWordReveal(words.length, animate)
   const revealDone = revealed >= words.length
   const hasOptions = !!message.options && message.options.length > 0
+  const hasAlternatives = !!message.alternatives && message.alternatives.length > 0
 
   // Keep the thread pinned to the bottom as the reply reveals itself and its card drops in,
   // so the newest content stays in view without the user chasing it.
@@ -294,13 +283,23 @@ function AiTurn({
         {revealDone && message.isConfirmation && message.checklist && (
           <ConfirmationCard
             checklist={message.checklist}
+            checklistDisplay={message.checklistDisplay}
             options={message.options ?? []}
             answered={message.answered}
             disabled={disabled}
             onSelectOption={onSelect}
           />
         )}
-        {revealDone && hasOptions && !message.isConfirmation && (
+        {revealDone && hasAlternatives && !message.isConfirmation && (
+          <AlternativeOffers
+            alternatives={message.alternatives ?? []}
+            options={message.options ?? []}
+            answered={message.answered}
+            disabled={disabled}
+            onSelect={onSelect}
+          />
+        )}
+        {revealDone && hasOptions && !hasAlternatives && !message.isConfirmation && (
           <OptionRow message={message} disabled={disabled} otherInputMode={otherInputMode} onSelect={onSelect} />
         )}
 
@@ -423,21 +422,25 @@ export function ChatWindow({
   isLoading,
   pendingFiles,
   trade,
+  voiceStatus,
   onSend,
   onSelectOption,
   onSelectPlace,
   onRetry,
+  onStartVoice,
+  onHangUp,
 }: {
   messages: ChatMessage[]
   isLoading: boolean
-  /** Attachments riding on the in-flight turn — they decide what the wait says it's doing. */
   pendingFiles?: File[] | null
-  /** When `fencing`, "Other" opens a free-text box instead of a metres-only length field. */
   trade?: string | null
+  voiceStatus?: VoiceStatus
   onSend: (text: string) => void
   onSelectOption: (messageId: string, option: ChatOption) => void
   onSelectPlace: (messageId: string, place: SuburbPlace) => void
   onRetry: () => void
+  onStartVoice?: () => void
+  onHangUp?: () => void
 }) {
   const otherInputMode = trade === 'fencing' ? 'text' : 'numeric'
   const [draft, setDraft] = useState('')
@@ -506,6 +509,9 @@ export function ChatWindow({
         </div>
       </div>
 
+      {voiceStatus && voiceStatus !== 'idle' && voiceStatus !== 'error' && onHangUp ? (
+        <VoiceBar status={voiceStatus} onHangUp={onHangUp} />
+      ) : (
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -538,6 +544,19 @@ export function ChatWindow({
             autoComplete="off"
             className="max-h-40 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-[15px] leading-relaxed text-[#062D27] placeholder:text-gray-300 focus:outline-none disabled:cursor-not-allowed"
           />
+          {onStartVoice && (
+            <button
+              type="button"
+              aria-label="Start voice call"
+              disabled={isLoading}
+              onClick={onStartVoice}
+              className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-all duration-150 hover:bg-[#EFF6F5] hover:text-[#062D27] active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-5 w-5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v3" />
+              </svg>
+            </button>
+          )}
           <button
             type="submit"
             aria-label="Send message"
@@ -550,6 +569,7 @@ export function ChatWindow({
           </button>
         </div>
       </form>
+      )}
     </div>
   )
 }

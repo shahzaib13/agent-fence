@@ -86,12 +86,14 @@ export function HeroInputScreen({
   selectedType,
   onSelectType,
   onSubmit,
+  onStartVoice,
 }: {
   description: string
   onDescriptionChange: (v: string) => void
   selectedType: string | null
   onSelectType: (t: string) => void
   onSubmit: (quoteFiles: File[]) => void
+  onStartVoice?: () => void
 }) {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -233,7 +235,11 @@ export function HeroInputScreen({
           />
           <div className="flex items-center justify-between pt-2">
             <div className="flex items-center gap-5">
-              <IconButton label="Record voice note" path="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v3" />
+              <IconButton
+                label="Start voice call"
+                path="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v3"
+                onClick={onStartVoice}
+              />
               <IconButton
                 label="Attach photo"
                 path="M4 5h16v14H4zM4 15l4-4 4 4 4-6 4 4"

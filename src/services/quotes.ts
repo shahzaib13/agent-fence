@@ -6,7 +6,13 @@
 // so a refresh mid-conversation loses nothing; Firestore holds it as well once there is a user
 // to attach it to, which is what makes it show up on their other devices. Signing in uploads
 // whatever was collected while they were still a guest.
-import type { ChatOption, ChecklistData, ComparisonSummary } from './fencingChat'
+import type {
+  AlternativeOffer,
+  ChatOption,
+  ChecklistData,
+  ChecklistDisplay,
+  ComparisonSummary,
+} from './fencingChat'
 import type { SuburbPlace } from './places'
 import { getDb } from './firebase'
 
@@ -26,6 +32,8 @@ export interface StoredMessage {
   isConfirmation?: boolean
   checklist?: ChecklistData | null
   expects?: 'suburb'
+  alternatives?: AlternativeOffer[]
+  checklistDisplay?: ChecklistDisplay
 }
 
 export interface QuoteSession {
@@ -42,6 +50,10 @@ export interface QuoteSession {
   intent?: 'new_quote' | 'compare_quote'
   /** Backend trade lock (`fencing`, `tiling`, …). Null until a chip or the backend sets one. */
   trade?: string | null
+  resultId?: string
+  resultMessage?: string
+  noMatchReason?: string
+  checklistDisplay?: ChecklistDisplay
   /** Set once the session has an owner; absent means it is still a guest's. */
   uid?: string
   phone?: string

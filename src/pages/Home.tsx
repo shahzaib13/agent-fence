@@ -1,20 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChatWindow, type ChatMessage } from '../components/ChatWindow'
 import { ChecklistPanel } from '../components/ChecklistPanel'
 import { Header } from '../components/Header'
 import { HeroInputScreen } from '../components/HeroInputScreen'
 import { QuoteComparisonPage } from '../components/QuoteComparisonPage'
 import { ThinkingScreen } from '../components/ThinkingScreen'
+import { useVoiceCall } from '../hooks/useVoiceCall'
 import {
   FENCING_CHAT_FALLBACK_MESSAGE,
   FencingChatError,
   sendFencingChatMessage,
   type ChatOption,
   type ChecklistData,
+  type ChecklistDisplay,
   type ComparisonSummary,
+  type FencingChatResponse,
 } from '../services/fencingChat'
 import { isPlacesConfigured, newSessionToken, searchSuburbs, suburbSearchQuery, type SuburbPlace } from '../services/places'
+import { isQuoteResultReady, listenQuoteResult } from '../services/quoteResults'
 import { saveQuote, type QuoteSession } from '../services/quotes'
+import { isVoiceCallConfigured } from '../services/voice'
 import { useAuth } from '../hooks/useAuth'
 import { diffFilledField } from '../utils/checklist'
 import { workerMatchesToComparison } from '../utils/comparison'
@@ -69,7 +74,13 @@ export function Home({
   const [comparison, setComparison] = useState<ComparisonSummary | null>(initialSession?.comparison ?? null)
   const [isLoading, setIsLoading] = useState(false)
   const [checklist, setChecklist] = useState<ChecklistData | null>(initialSession?.checklist ?? null)
+  const [checklistDisplay, setChecklistDisplay] = useState<ChecklistDisplay | null>(
+    initialSession?.checklistDisplay ?? null,
+  )
   const [checklistComplete, setChecklistComplete] = useState(false)
+  const [resultId, setResultId] = useState<string | undefined>(initialSession?.resultId)
+  const [resultMessage, setResultMessage] = useState<string | undefined>(initialSession?.resultMessage)
+  const [noMatchReason, setNoMatchReason] = useState<string | undefined>(initialSession?.noMatchReason)
   // Stays put across every save, so reopening a quote doesn't keep resetting when it began.
   const startedAt = useRef(initialSession?.createdAt ?? Date.now())
   // A finished quote has two faces and the customer picks which one they are looking at. The
@@ -93,7 +104,7 @@ export function Home({
       status: comparison ? 'complete' : 'in_progress',
       createdAt: startedAt.current,
       updatedAt: Date.now(),
-      messages: messages.map(({ id, role, text, options, answered, answeredField, isConfirmation, checklist: turnChecklist, expects }) => ({
+      messages: messages.map(({ id, role, text, options, answered, answeredField, isConfirmation, checklist: turnChecklist, expects, alternatives, checklistDisplay: turnDisplay }) => ({
         id,
         role,
         text,
@@ -103,20 +114,130 @@ export function Home({
         isConfirmation,
         checklist: turnChecklist,
         expects,
+        alternatives,
+        checklistDisplay: turnDisplay ?? undefined,
       })),
       checklist,
+      checklistDisplay: checklistDisplay ?? undefined,
       place,
       comparison,
       intent,
       trade,
+      resultId,
+      resultMessage,
+      noMatchReason,
     }),
-    [messages, checklist, place, comparison, intent, trade, sessionId],
+    [messages, checklist, checklistDisplay, place, comparison, intent, trade, sessionId, resultId, resultMessage, noMatchReason],
   )
 
   useEffect(() => {
     if (quoteSession.messages.length === 0) return
     saveQuote(quoteSession, user)
   }, [quoteSession, user])
+
+  const intentRef = useRef(intent)
+  intentRef.current = intent
+  const tradeRef = useRef(trade)
+  tradeRef.current = trade
+  const checklistRef = useRef(checklist)
+  checklistRef.current = checklist
+  const stopVoiceRef = useRef<() => void>(() => {})
+
+  const applyTurn = useCallback(
+    (response: FencingChatResponse, previousChecklist: ChecklistData | null, answeredId: string | null, fromVoice = false) => {
+      // The server's place always wins — sending last turn's picker object after the customer
+      // moved suburb is what reopens the suburb question.
+      setPlace(response.place ?? null)
+
+      const hasQuoteToBeat = Number(response.checklist?.existingPrice) > 0
+      if (response.intent && (!intentRef.current || (response.intent === 'compare_quote' && hasQuoteToBeat))) {
+        setIntent(response.intent)
+      }
+      if (!tradeRef.current && response.trade && KNOWN_TRADES.has(response.trade)) setTrade(response.trade)
+      if (response.checklist) setChecklist(response.checklist)
+      if (response.checklistDisplay) setChecklistDisplay(response.checklistDisplay)
+      setChecklistComplete(response.checklistComplete ?? false)
+      if (response.resultId) setResultId(response.resultId)
+      if (response.noMatchReason !== undefined) setNoMatchReason(response.noMatchReason)
+
+      const filledField = diffFilledField(previousChecklist, response.checklist)
+      const labelAnswer = (previous: ChatMessage[]) =>
+        answeredId && filledField
+          ? previous.map((m) => (m.id === answeredId ? { ...m, answeredField: filledField } : m))
+          : previous
+
+      const isResultPage =
+        (response.intent === 'compare_quote' && !!response.comparison) || response.type === 'result'
+      if (isResultPage) {
+        stopVoiceRef.current()
+        setComparison(response.comparison ?? workerMatchesToComparison(response.results ?? []))
+        setResultMessage(response.message)
+        setView('result')
+        return
+      }
+
+      const expectsSuburb =
+        isPlacesConfigured() && (response.expects === 'suburb' || ASKS_FOR_SUBURB.test(response.message))
+      const turn = {
+        id: generateId(),
+        role: 'ai' as const,
+        text: response.message,
+        options: response.options,
+        checklist: response.checklist ?? previousChecklist,
+        checklistDisplay: response.checklistDisplay,
+        isConfirmation: response.type === 'confirmation',
+        expects: expectsSuburb ? ('suburb' as const) : undefined,
+        alternatives: response.alternatives,
+      }
+
+      setMessages((previous) => {
+        const labelled = labelAnswer(previous)
+        if (fromVoice) {
+          const last = labelled.at(-1)
+          if (last?.role === 'ai' && !last.answered) return [...labelled.slice(0, -1), { ...turn, id: last.id }]
+        }
+        return [...labelled, turn]
+      })
+
+      if (expectsSuburb && response.suggestedSuburb) void prefillSuburb(turn.id, response.suggestedSuburb)
+    },
+    [],
+  )
+
+  const { status: voiceStatus, start: startVoice, stop: stopVoice, isActive: isVoiceActive } = useVoiceCall({
+    sessionId,
+    place,
+    knownChecklist: checklist,
+    onUiUpdate: (response) => applyTurn(response, checklistRef.current, null, true),
+    onEnded: (endedResultId) => {
+      if (endedResultId) setResultId(endedResultId)
+    },
+  })
+  stopVoiceRef.current = stopVoice
+
+  useEffect(() => {
+    if (!resultId) return
+    let cancelled = false
+    let unsub: (() => void) | undefined
+    void listenQuoteResult(resultId, (doc) => {
+      if (!isQuoteResultReady(doc)) return
+      if (doc.comparison) setComparison(doc.comparison)
+      else if (doc.results) setComparison(workerMatchesToComparison(doc.results))
+      if (doc.message) setResultMessage(doc.message)
+      if (doc.noMatchReason !== undefined) setNoMatchReason(doc.noMatchReason)
+      if (doc.place !== undefined) setPlace(doc.place ?? null)
+      if (doc.checklist) setChecklist(doc.checklist)
+      if (doc.checklistDisplay) setChecklistDisplay(doc.checklistDisplay)
+      setView('result')
+    }).then((stop) => {
+      if (cancelled) stop()
+      else unsub = stop
+    })
+    return () => {
+      cancelled = true
+      unsub?.()
+    }
+  }, [resultId])
 
   async function sendMessage(
     apiText: string,
@@ -142,79 +263,7 @@ export function Home({
         knownChecklist: previousChecklist,
         place: confirmedPlace ?? place,
       })
-      // Locked on the first turn that declares one. The one exception is a quote to beat
-      // actually arriving (attached or mentioned): that only ever moves new_quote -> compare_quote,
-      // and is checked against the price itself rather than taken on the backend's word alone.
-      // Positive, not merely present: a 0 is never a price anybody was quoted.
-      const hasQuoteToBeat = Number(response.checklist?.existingPrice) > 0
-      if (response.intent && (!intent || (response.intent === 'compare_quote' && hasQuoteToBeat))) {
-        setIntent(response.intent)
-      }
-      // Only overwrite when this turn actually carries a checklist — a "what should I fix?"
-      // acknowledgement or similar aside may legitimately omit it. Keeping the last-known
-      // checklist means the sidebar never blanks out mid-conversation.
-      // Locked the same way intent is: first known slug wins. An empty string means the
-      // workflow is still asking which trade it is, and a later 'fencing' from a mis-routed
-      // confirm turn must not replace a chip (or an earlier backend lock) already on the session.
-      if (!trade && response.trade && KNOWN_TRADES.has(response.trade)) setTrade(response.trade)
-      if (response.checklist) setChecklist(response.checklist)
-      setChecklistComplete(response.checklistComplete ?? false)
-
-      const filledField = diffFilledField(previousChecklist, response.checklist)
-      const labelAnswer = (previous: ChatMessage[]) =>
-        answeredId && filledField
-          ? previous.map((m) => (m.id === answeredId ? { ...m, answeredField: filledField } : m))
-          : previous
-
-      // Page routing (comparison vs. new-quote flow) depends only on `intent`. `type`
-      // never decides which page shows — it just describes the payload (result/message/
-      // question/etc.) within whichever flow `intent` has already picked. Guarded by
-      // `response.comparison` actually being present: if the API tags a response
-      // `intent: 'compare_quote'` without a comparison object (a malformed/inconsistent
-      // payload), there's nothing to show on that page — fall back to reading `type`
-      // instead of leaving the UI stuck on stale state.
-      if (response.intent === 'compare_quote' && response.comparison) {
-        setComparison(response.comparison)
-        setView('result')
-        return
-      }
-      // A `result` with nothing in it is the workflow explaining why — no business covers their
-      // suburb, or none of the ones that do offer that fence type. That belongs back in the
-      // thread, where they can correct the suburb or fence type in one line, not on an empty
-      // results page where the explanation would never be shown at all.
-      // Matches from the new-quote flow are folded into the same comparison shape, so both
-      // intents finish on one page instead of two layouts that have to be kept in step.
-      if (response.type === 'result' && response.results.length > 0) {
-        setComparison(workerMatchesToComparison(response.results))
-        setView('result')
-        return
-      }
-
-      // Any turn that asks about the suburb gets the picker — including "what's the correct
-      // suburb?" halfway through, when one has already been confirmed and is being changed. A
-      // place picked from Google is the only thing that counts as an answer here, so the client
-      // decides this rather than waiting for the workflow to remember `expects`.
-      const expectsSuburb =
-        isPlacesConfigured() && (response.expects === 'suburb' || ASKS_FOR_SUBURB.test(response.message))
-      const turnId = generateId()
-
-      setMessages((previous) => [
-        ...labelAnswer(previous),
-        {
-          id: turnId,
-          role: 'ai',
-          text: response.message,
-          options: response.options,
-          checklist: response.checklist ?? previousChecklist,
-          isConfirmation: response.type === 'confirmation',
-          expects: expectsSuburb ? 'suburb' : undefined,
-        },
-      ])
-      // A place the customer already named — in passing, or on the quote document they
-      // attached — becomes the picker's opening search, so confirming it is one tap instead of
-      // typing it out a second time. It is still only a head start: nothing counts until they
-      // pick from Google's list.
-      if (expectsSuburb && response.suggestedSuburb) void prefillSuburb(turnId, response.suggestedSuburb)
+      applyTurn(response, previousChecklist, answeredId)
     } catch (error) {
       const chatError = error instanceof FencingChatError ? error : null
       const customerMessage = chatError?.message ?? FENCING_CHAT_FALLBACK_MESSAGE
@@ -387,7 +436,16 @@ export function Home({
     void sendMessage(description, quoteFiles)
   }
 
+  const handleStartVoice = () => {
+    setStage('chat')
+    if (description.trim() && messages.length === 0) {
+      setMessages([{ id: generateId(), role: 'user', text: description.trim() }])
+    }
+    void startVoice(description.trim() || undefined)
+  }
+
   const handleRestart = () => {
+    stopVoice()
     setSessionId(generateId())
     setMessages([])
     setIntent(undefined)
@@ -398,7 +456,11 @@ export function Home({
     setDescription('')
     setSelectedType(null)
     setChecklist(null)
+    setChecklistDisplay(null)
     setChecklistComplete(false)
+    setResultId(undefined)
+    setResultMessage(undefined)
+    setNoMatchReason(undefined)
     setPlace(null)
     pendingAnswerId.current = null
     startedAt.current = Date.now()
@@ -411,6 +473,7 @@ export function Home({
     return (
       <QuoteComparisonPage
         comparison={comparison}
+        message={resultMessage}
         intent={intent}
         place={place}
         quoteSession={quoteSession}
@@ -448,12 +511,15 @@ export function Home({
             isLoading={isLoading}
             pendingFiles={pendingFiles}
             trade={trade}
+            voiceStatus={voiceStatus}
             onSend={handleSend}
             onSelectOption={handleSelectOption}
             onSelectPlace={handleSelectPlace}
             onRetry={handleRetry}
+            onStartVoice={isVoiceCallConfigured() ? handleStartVoice : undefined}
+            onHangUp={isVoiceActive ? stopVoice : undefined}
           />
-          <ChecklistPanel checklist={checklist} />
+          <ChecklistPanel checklist={checklist} checklistDisplay={checklistDisplay} />
         </div>
       </div>
     )
@@ -495,6 +561,7 @@ export function Home({
             setTrade(CHIP_TRADE[type] ?? null)
           }}
           onSubmit={handleHeroSubmit}
+          onStartVoice={isVoiceCallConfigured() ? handleStartVoice : undefined}
         />
       )}
 
