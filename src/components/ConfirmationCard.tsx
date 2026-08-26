@@ -1,27 +1,28 @@
-import type { ChatOption, ChecklistData } from '../services/fencingChat'
-import { ChecklistRows } from './ChecklistRows'
+import type { ChatOption, ChecklistData, ChecklistDisplay } from '../services/fencingChat'
+import { ChecklistDisplayRows, ChecklistRows } from './ChecklistRows'
 
-// The recap-and-confirm turn, rendered inside the chat thread. The workflow's recap sentence
-// is already in the message bubble above it, so this card is only the brief itself plus the
-// yes/no choice — and once that choice is made it collapses to the answer, same as an MCQ row.
 export function ConfirmationCard({
   checklist,
+  checklistDisplay,
   options,
   answered,
   disabled,
   onSelectOption,
 }: {
   checklist: ChecklistData
+  checklistDisplay?: ChecklistDisplay | null
   options: ChatOption[]
   answered?: ChatOption
   disabled?: boolean
   onSelectOption: (option: ChatOption) => void
 }) {
+  const hasDisplay = !!checklistDisplay && Object.keys(checklistDisplay).length > 0
+
   return (
     <div className="max-w-2xl rounded-3xl border border-[#062D27]/15 bg-white p-6 shadow-[0_10px_40px_rgba(6,45,39,0.07)] animate-[card-rise_0.45s_ease-out_backwards]">
       <p className="mb-5 text-[11px] font-bold tracking-widest text-emerald-600 uppercase">Your project brief</p>
       <div className="mb-6 rounded-2xl bg-[#F1F4F3] p-5">
-        <ChecklistRows checklist={checklist} />
+        {hasDisplay ? <ChecklistDisplayRows display={checklistDisplay} /> : <ChecklistRows checklist={checklist} />}
       </div>
 
       {answered ? (

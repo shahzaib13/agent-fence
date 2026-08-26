@@ -103,6 +103,20 @@ describe('QuoteComparisonPage', () => {
     expect(screen.getByText(/no comparable quotes found yet/i)).toBeInTheDocument()
   })
 
+  it('prefers the backend message on an empty result, not an error tone', () => {
+    render(
+      <QuoteComparisonPage
+        quoteSession={quoteSession}
+        comparison={{ ...baseComparison, quotes: [] }}
+        message="Your existing quote is already the best we found locally."
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/already the best we found locally/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no comparable quotes found yet/i)).not.toBeInTheDocument()
+  })
+
   it('titles the page by intent, so a fresh quote is not called a direct comparison', () => {
     const { rerender } = render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} intent="new_quote" onBack={vi.fn()} />)
     expect(screen.getByRole('heading', { name: /your local quote comparison/i })).toBeInTheDocument()

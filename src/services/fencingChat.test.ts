@@ -4,6 +4,8 @@ import { api } from './api'
 import {
   FENCING_CHAT_FALLBACK_MESSAGE,
   FencingChatError,
+  fencingChatFromMetadata,
+  resultIdFromMetadata,
   serialiseKnownChecklist,
   sendFencingChatMessage,
 } from './fencingChat'
@@ -215,5 +217,19 @@ describe('sendFencingChatMessage', () => {
 
     expect(response.message.trim()).not.toBe('')
     expect(response.type).toBe('message')
+  })
+})
+
+describe('voice metadata helpers', () => {
+  it('unwraps a fencing-chat payload from Retell metadata', () => {
+    const payload = { ...ok, type: 'question' as const, expects: 'suburb' as const }
+    expect(fencingChatFromMetadata({ metadata: payload })).toEqual(payload)
+    expect(fencingChatFromMetadata(payload)).toEqual(payload)
+  })
+
+  it('reads resultId from a wrapper or the payload itself', () => {
+    expect(resultIdFromMetadata({ resultId: 'r1' })).toBe('r1')
+    expect(resultIdFromMetadata({ ...ok, resultId: 'r2' })).toBe('r2')
+    expect(resultIdFromMetadata({ metadata: { resultId: 'r3' } })).toBe('r3')
   })
 })

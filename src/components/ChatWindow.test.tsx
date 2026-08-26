@@ -160,14 +160,13 @@ describe('ChatWindow', () => {
       ],
     }
 
-    it('opens a free-text box for fencing Other answers', async () => {
+    it('opens a free-text box for fencing Other answers without an Other button', async () => {
       const onSelectOption = vi.fn()
       renderWindow([lengthQuestion], false, { onSelectOption, trade: 'fencing' })
       const user = userEvent.setup()
 
-      await user.click(await screen.findByRole('button', { name: 'Other' }))
-
-      expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+      expect(await screen.findByLabelText(/your answer/i)).toBeInTheDocument()
       await user.type(screen.getByLabelText(/your answer/i), 'chainmesh')
       await user.click(screen.getByRole('button', { name: /use this/i }))
 
@@ -177,11 +176,9 @@ describe('ChatWindow', () => {
     it('opens a metres box instead of sending "Other" anywhere', async () => {
       const onSelectOption = vi.fn()
       renderWindow([lengthQuestion], false, { onSelectOption })
-      const user = userEvent.setup()
 
-      await user.click(await screen.findByRole('button', { name: 'Other' }))
-
-      expect(screen.getByLabelText(/length in metres/i)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+      expect(await screen.findByLabelText(/length in metres/i)).toBeInTheDocument()
       expect(onSelectOption).not.toHaveBeenCalled()
     })
 
@@ -190,8 +187,7 @@ describe('ChatWindow', () => {
       renderWindow([lengthQuestion], false, { onSelectOption })
       const user = userEvent.setup()
 
-      await user.click(await screen.findByRole('button', { name: 'Other' }))
-      await user.type(screen.getByLabelText(/length in metres/i), '27')
+      await user.type(await screen.findByLabelText(/length in metres/i), '27')
       await user.click(screen.getByRole('button', { name: /use this/i }))
 
       expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: '27m', value: 27 })
@@ -201,8 +197,7 @@ describe('ChatWindow', () => {
       renderWindow([lengthQuestion], false)
       const user = userEvent.setup()
 
-      await user.click(await screen.findByRole('button', { name: 'Other' }))
-      const box = screen.getByLabelText(/length in metres/i)
+      const box = await screen.findByLabelText(/length in metres/i)
 
       await user.type(box, '0')
       expect(screen.getByRole('button', { name: /use this/i })).toBeDisabled()
@@ -216,15 +211,50 @@ describe('ChatWindow', () => {
       expect(screen.getByRole('button', { name: /use this/i })).toBeEnabled()
     })
 
-    it('goes back to the tiles when it was the wrong turn to take', async () => {
+    it('keeps the real tiles next to the free-text box', async () => {
       renderWindow([lengthQuestion], false)
-      const user = userEvent.setup()
 
-      await user.click(await screen.findByRole('button', { name: 'Other' }))
-      await user.click(screen.getByRole('button', { name: /back to options/i }))
+      expect(await screen.findByRole('button', { name: '10m' })).toBeInTheDocument()
+      expect(screen.getByLabelText(/length in metres/i)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /back to options/i })).not.toBeInTheDocument()
+    })
+  })
 
-      expect(screen.getByRole('button', { name: '10m' })).toBeInTheDocument()
-      expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
+  it('renders alternative offers as priced cards instead of the option row', async () => {
+    const onSelectOption = vi.fn()
+    const user = userEvent.setup()
+    renderWindow(
+      [
+        {
+          id: 'ai-alt',
+          role: 'ai',
+          text: 'Nobody nearby does that exact spec. One of these instead?',
+          options: [
+            { label: 'Colorbond, 1.8m · $2,200', value: 'alt:colorbond:1.8m' },
+            { label: "No thanks, I'll change something", value: 'no' },
+          ],
+          alternatives: [
+            {
+              material: 'colorbond',
+              materialLabel: 'Colorbond',
+              heightKey: '1.8m',
+              businessName: 'Southeast Fencing',
+              estimatedTotal: 2200,
+              value: 'alt:colorbond:1.8m',
+            },
+          ],
+        },
+      ],
+      false,
+      { onSelectOption },
+    )
+
+    expect(await screen.findByText('$2,200')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Colorbond, 1.8m · $2,200' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /no thanks/i }))
+    expect(onSelectOption).toHaveBeenCalledWith('ai-alt', {
+      label: "No thanks, I'll change something",
+      value: 'no',
     })
   })
 })

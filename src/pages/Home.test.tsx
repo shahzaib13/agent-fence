@@ -28,6 +28,20 @@ vi.mock('../services/places', async (importOriginal) => ({
   fetchSuburbPlace: vi.fn(),
 }))
 
+vi.mock('../services/quoteResults', () => ({
+  isQuoteResultReady: (doc: { displayState?: string }) => doc.displayState === 'ready',
+  listenQuoteResult: vi.fn(async () => () => {}),
+}))
+
+vi.mock('../hooks/useVoiceCall', () => ({
+  useVoiceCall: () => ({
+    status: 'idle',
+    start: vi.fn(),
+    stop: vi.fn(),
+    isActive: false,
+  }),
+}))
+
 const mockedSend = vi.mocked(sendFencingChatMessage)
 const mockedSearch = vi.mocked(searchSuburbs)
 const mockedFetchPlace = vi.mocked(fetchSuburbPlace)
@@ -264,17 +278,22 @@ describe('Home', () => {
 
     await startChat(user)
 
+    expect(await screen.findByLabelText(/your answer/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
+
     mockedSend.mockResolvedValueOnce({
       sessionId: 'session-1',
-      type: 'message',
-      message: 'Got it.',
-      options: [],
+      type: 'question',
+      message: 'Anything else to add?',
+      options: [{ label: 'Other', value: '__other__' }],
       results: [],
       avgRatePerMeter: null,
       trade: '',
     })
-    await user.click(await screen.findByRole('button', { name: 'Other' }))
-    // Fencing trade → free-text Other box, not metres-only
+    await user.click(await screen.findByRole('button', { name: 'Timber' }))
+
+    expect(await screen.findByText(/anything else to add/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
     expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
   })
@@ -450,7 +469,7 @@ describe('Home', () => {
     expect(screen.queryByRole('heading', { name: /finalising your quote/i })).not.toBeInTheDocument()
   })
 
-  it('keeps a no-match result in the thread so the reason is actually readable', async () => {
+  it('opens the results page for an empty match, using the backend message rather than an error', async () => {
     const user = userEvent.setup()
     mockedSend.mockResolvedValueOnce({
       sessionId: 'session-1',
@@ -459,14 +478,14 @@ describe('Home', () => {
       options: [],
       results: [],
       avgRatePerMeter: null,
+      noMatchReason: 'suburb',
     })
 
     await startChat(user, 'Colorbond fence in Gotham City, 20m')
 
-    await waitFor(() => expect(screen.getByText(/don't have any fencing businesses covering/i)).toBeInTheDocument())
-    // still in the chat, so the suburb can be corrected on the spot
-    expect(screen.getByLabelText(/your reply/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /start a new quote/i })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('heading', { name: /your local quote comparison/i })).toBeInTheDocument())
+    expect(screen.getByText(/don't have any fencing businesses covering/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /instant quote/i })).not.toBeInTheDocument()
   })
 
   it('lets the user correct a wrong field from the confirmation card, then re-shows the confirmation', async () => {
@@ -789,18 +808,10 @@ describe('Home', () => {
       place: null,
     })
 
-    mockedSend.mockResolvedValueOnce({
-      sessionId: 'session-1',
-      type: 'message',
-      message: 'Got it.',
-      options: [],
-      results: [],
-      avgRatePerMeter: null,
-      trade: 'fencing',
-    })
     // Chip locked tiling → Other stays metres-only even if the backend claims fencing
-    await user.click(screen.getByRole('button', { name: 'Other' }))
-    expect(screen.getByLabelText(/length in metres/i)).toBeInTheDocument()
+    expect(await screen.findByLabelText(/length in metres/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/your answer/i)).not.toBeInTheDocument()
   })
 
   it('locks trade from the chip when mapped, otherwise leaves it for the backend', async () => {
@@ -905,6 +916,53 @@ describe('Home', () => {
     )
     expect(await screen.findByText('Suburb: Pakenham, VIC 3810')).toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('sends response.place on the next turn, not the suburb the picker last selected', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce(suburbQuestion)
+    await startChat(user)
+    await screen.findByText(/which suburb is the fence going in/i)
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'What type of fence are you after?',
+      options: [{ label: 'Timber', value: 'Timber' }],
+      results: [],
+      avgRatePerMeter: null,
+      place: null,
+    })
+
+    await user.type(screen.getByRole('combobox'), 'pakan')
+    await user.click(await screen.findByRole('option', { name: /^pakenham vic, australia/i }))
+
+    await waitFor(() =>
+      expect(mockedSend).toHaveBeenLastCalledWith(
+        'Pakenham, VIC 3810',
+        expect.any(String),
+        undefined,
+        expect.objectContaining({ place: pakenham }),
+      ),
+    )
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'message',
+      message: 'Timber it is.',
+      options: [],
+      results: [],
+      avgRatePerMeter: null,
+      place: null,
+    })
+    await user.click(await screen.findByRole('button', { name: 'Timber' }))
+
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'Timber',
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ place: null }),
+    )
   })
 
   it('looks a typed suburb up against Google before spending a workflow turn on it', async () => {

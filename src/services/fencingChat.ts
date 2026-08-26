@@ -129,6 +129,18 @@ export interface ChecklistDisplayRow {
   value: string
 }
 
+/** Backend-authored brief rows, keyed by field — not an array. */
+export type ChecklistDisplay = Record<string, ChecklistDisplayRow>
+
+export interface AlternativeOffer {
+  material: string
+  materialLabel: string
+  heightKey: string
+  businessName: string
+  estimatedTotal: number
+  value: string
+}
+
 export interface FencingChatResponse {
   sessionId: string
   // `comparison_result` kept so older saved threads / fixtures still type-check; the Node API
@@ -144,12 +156,14 @@ export interface FencingChatResponse {
   suggestedSuburb?: string
   checklist?: ChecklistData | null
   /** Ready-made brief rows — prefer over formatting slugs yourself when present. */
-  checklistDisplay?: ChecklistDisplayRow[]
+  checklistDisplay?: ChecklistDisplay
   checklistComplete?: boolean
   trade?: string
   place?: SuburbPlace | null
   noMatchReason?: string
-  alternatives?: unknown[]
+  alternatives?: AlternativeOffer[]
+  /** Present on the last turn — listen to `quoteResults/{resultId}` for refresh-safe results. */
+  resultId?: string
 }
 
 /**
@@ -163,7 +177,7 @@ function fencingChatUrl(): string {
     (import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL as string | undefined)?.trim()
   if (explicit) return explicit
 
-  const base = (import.meta.env.VITE_QUOTEMY_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '')
+  const base = quoteMyApiBase()
   if (base) return `${base}/api/v1/client/fencing-chat`
 
   throw new Error(
@@ -172,6 +186,46 @@ function fencingChatUrl(): string {
 }
 
 const VALID_TYPES = ['message', 'question', 'confirmation', 'result', 'comparison_result']
+
+/** QuoteMy host, with no trailing slash. Shared with the voice create-call path. */
+export function quoteMyApiBase(): string | undefined {
+  const explicit =
+    (import.meta.env.VITE_FENCING_CHAT_URL as string | undefined)?.trim() ||
+    (import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL as string | undefined)?.trim()
+  if (explicit) {
+    const trimmed = explicit.replace(/\/$/, '')
+    const stripped = trimmed.replace(/\/api\/v1\/client\/fencing-chat$/, '')
+    return stripped || undefined
+  }
+  const base = (import.meta.env.VITE_QUOTEMY_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '')
+  return base || undefined
+}
+
+export function isFencingChatResponse(data: unknown): data is FencingChatResponse {
+  if (!data || typeof data !== 'object') return false
+  const body = data as { type?: unknown; message?: unknown }
+  return typeof body.message === 'string' && typeof body.type === 'string' && VALID_TYPES.includes(body.type)
+}
+
+/** Retell metadata may wrap the chat payload, or be the payload itself. */
+export function fencingChatFromMetadata(data: unknown): FencingChatResponse | null {
+  if (isFencingChatResponse(data)) return data
+  if (!data || typeof data !== 'object') return null
+  const body = data as { metadata?: unknown; payload?: unknown; data?: unknown }
+  if (isFencingChatResponse(body.metadata)) return body.metadata
+  if (isFencingChatResponse(body.payload)) return body.payload
+  if (isFencingChatResponse(body.data)) return body.data
+  return null
+}
+
+export function resultIdFromMetadata(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined
+  const body = data as { resultId?: unknown; metadata?: { resultId?: unknown } }
+  if (typeof body.resultId === 'string' && body.resultId) return body.resultId
+  if (typeof body.metadata?.resultId === 'string' && body.metadata.resultId) return body.metadata.resultId
+  const nested = fencingChatFromMetadata(data)
+  return nested?.resultId
+}
 
 /** Carried across turns — only `knownChecklist` and `place` are sent to the API. */
 export interface SessionContext {

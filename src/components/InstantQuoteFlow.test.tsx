@@ -181,7 +181,7 @@ describe('InstantQuoteFlow', () => {
 
     expect(screen.getByText('Enter your full name.')).toBeInTheDocument()
     expect(screen.getByText('Enter an email address we can reach you at.')).toBeInTheDocument()
-    expect(screen.getByText(/country code/i)).toBeInTheDocument()
+    expect(screen.getByText(/valid 10 digits number/i)).toBeInTheDocument()
     expect(sendOtp).not.toHaveBeenCalled()
   })
 

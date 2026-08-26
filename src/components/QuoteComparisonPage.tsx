@@ -34,6 +34,7 @@ function StatCard({
 
 export function QuoteComparisonPage({
   comparison,
+  message,
   intent,
   place,
   quoteSession,
@@ -41,6 +42,7 @@ export function QuoteComparisonPage({
   onViewChat,
 }: {
   comparison: ComparisonSummary
+  message?: string
   // Carried through from the conversation rather than re-derived here: the saved job records
   // the whole place, and this page is the last screen before it is written.
   place?: SuburbPlace | null
@@ -124,9 +126,9 @@ export function QuoteComparisonPage({
 
         <div className="flex w-full flex-col gap-4">
           {comparison.quotes.length === 0 ? (
-            <p className="rounded-3xl border border-[#F3F4F6] bg-white p-6 text-sm text-[#6B7280] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-              No comparable quotes found yet for that suburb and fence type — try a nearby suburb or a different
-              fence type.
+            <p className="rounded-3xl border border-[#F3F4F6] bg-white p-6 text-base leading-7 text-[#062D27] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+              {message?.trim() ||
+                'No comparable quotes found yet for that suburb and fence type — try a nearby suburb or a different fence type.'}
             </p>
           ) : (
             comparison.quotes.map((quote) => <QuoteCard key={quote.businessName} quote={quote} />)
