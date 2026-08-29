@@ -79,3 +79,18 @@ body {
     background-position: -160% 0;
   }
 }
+
+.voice-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.voice-divider::before,
+.voice-divider::after {
+  content: '';
+  flex: 1;
+  height: 6px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='6'%3E%3Cpath d='M0 3 q 4 -3 8 0 t 8 0' fill='none' stroke='%23b8c9bf' stroke-width='1.2'/%3E%3C/svg%3E")
+    repeat-x center;
+}

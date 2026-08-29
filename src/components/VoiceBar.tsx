@@ -3,13 +3,16 @@ import type { VoiceStatus } from '../hooks/useVoiceCall'
 export function VoiceBar({
   status,
   onHangUp,
+  preparingLabel,
 }: {
   status: VoiceStatus
-  onHangUp: () => void
+  onHangUp?: () => void
+  /** Shown instead of Connecting/Listening/Speaking while the mic is not live yet. */
+  preparingLabel?: string
 }) {
   const speaking = status === 'speaking'
   const connecting = status === 'connecting'
-  const label = connecting ? 'Connecting' : speaking ? 'Speaking' : 'Listening'
+  const label = preparingLabel ?? (connecting ? 'Connecting' : speaking ? 'Speaking' : 'Listening')
 
   return (
     <div className="border-t border-gray-100 px-6 py-5 sm:px-10">
@@ -35,14 +38,16 @@ export function VoiceBar({
         <p className="min-w-0 flex-1 text-sm font-medium" role="status" aria-live="polite">
           {label}
         </p>
-        <button
-          type="button"
-          onClick={onHangUp}
-          aria-label="End voice call"
-          className="rounded-full bg-white/15 px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-        >
-          Hang up
-        </button>
+        {onHangUp ? (
+          <button
+            type="button"
+            onClick={onHangUp}
+            aria-label="End voice call"
+            className="rounded-full bg-white/15 px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+          >
+            Hang up
+          </button>
+        ) : null}
       </div>
     </div>
   )

@@ -5,6 +5,7 @@ import { Header } from '../components/Header'
 import { HeroInputScreen } from '../components/HeroInputScreen'
 import { QuoteComparisonPage } from '../components/QuoteComparisonPage'
 import { ThinkingScreen } from '../components/ThinkingScreen'
+import { useAuth } from '../hooks/useAuth'
 import { useVoiceCall } from '../hooks/useVoiceCall'
 import {
   FENCING_CHAT_FALLBACK_MESSAGE,
@@ -17,13 +18,15 @@ import {
   type FencingChatResponse,
 } from '../services/fencingChat'
 import { isPlacesConfigured, newSessionToken, searchSuburbs, suburbSearchQuery, type SuburbPlace } from '../services/places'
-import { isQuoteResultReady, listenQuoteResult } from '../services/quoteResults'
+import { isQuoteResultReady, fetchQuoteResult, listenQuoteResult, type QuoteResultDoc } from '../services/quoteResults'
 import { saveQuote, type QuoteSession } from '../services/quotes'
-import { isVoiceCallConfigured } from '../services/voice'
-import { useAuth } from '../hooks/useAuth'
+import { isVoiceCallConfigured, freshVoiceTurns, lastVoiceTurnN, VOICE_RATE_LIMIT_MESSAGE, type ChecklistAnsweredItem, type ChecklistPendingItem, type VoiceCallContext, type VoiceSession } from '../services/voice'
+import { sortMessagesByTime, withCreatedAt } from '../utils/chatTimeline'
+import { mergeChecklistData, mergeChecklistDisplay } from '../utils/checklistMerge'
 import { diffFilledField } from '../utils/checklist'
 import { workerMatchesToComparison } from '../utils/comparison'
 import { generateId } from '../utils/id'
+import { mergeVoiceTurns, voiceModeOffDivider, voiceModeOnDivider } from '../utils/voiceMessages'
 
 // The whole conversation now happens in the chat thread — `thinking` only plays once, after the
 // user has confirmed their brief and the workflow goes off to rank businesses. There is no
@@ -50,6 +53,67 @@ function buildPrefill(type: string) {
   return `I need a ${type.toLowerCase()} — `
 }
 
+function toStoredMessages(thread: ChatMessage[]) {
+  return thread.map(
+    ({
+      id,
+      role,
+      text,
+      createdAt,
+      isVoice,
+      options,
+      answered,
+      answeredField,
+      isConfirmation,
+      checklist: turnChecklist,
+      expects,
+      alternatives,
+      checklistDisplay: turnDisplay,
+    }) => ({
+      id,
+      role,
+      text,
+      createdAt,
+      isVoice,
+      options,
+      answered,
+      answeredField,
+      isConfirmation,
+      checklist: turnChecklist,
+      expects,
+      alternatives,
+      checklistDisplay: turnDisplay ?? undefined,
+    }),
+  )
+}
+
+function applyChecklistAnsweredState(
+  answered: ChecklistAnsweredItem[] | undefined,
+  setAnswered: (value: ChecklistAnsweredItem[]) => void,
+) {
+  if (answered === undefined || answered.length === 0) return
+  setAnswered(answered)
+}
+
+function voiceContextFromState(input: {
+  checklist: ChecklistData | null
+  place: SuburbPlace | null
+  responseOptions: ChatOption[]
+  checklistDisplay: ChecklistDisplay | null
+  checklistAnswered: ChecklistAnsweredItem[]
+  messages: ChatMessage[]
+}): VoiceCallContext {
+  const lastAi = input.messages.findLast((message) => message.role === 'ai')
+  return {
+    checklist: input.checklist,
+    place: input.place,
+    options: input.responseOptions.length ? input.responseOptions : null,
+    message: lastAi?.text ?? '',
+    checklistDisplay: input.checklistDisplay,
+    checklistAnswered: input.checklistAnswered,
+  }
+}
+
 // A conversation being reopened from the Quotes tab, or nothing for a fresh one.
 export function Home({
   initialSession,
@@ -64,7 +128,13 @@ export function Home({
   const [description, setDescription] = useState('')
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState(() => initialSession?.sessionId ?? generateId())
-  const [messages, setMessages] = useState<ChatMessage[]>(() => initialSession?.messages ?? [])
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const base = initialSession?.createdAt ?? Date.now()
+    return (initialSession?.messages ?? []).map((message, index) => ({
+      ...message,
+      createdAt: message.createdAt ?? base + index,
+    }))
+  })
   const [intent, setIntent] = useState<'new_quote' | 'compare_quote' | undefined>(initialSession?.intent)
   const [trade, setTrade] = useState<string | null>(() => initialSession?.trade ?? null)
   const [lastFailedText, setLastFailedText] = useState<string | null>(null)
@@ -76,6 +146,12 @@ export function Home({
   const [checklist, setChecklist] = useState<ChecklistData | null>(initialSession?.checklist ?? null)
   const [checklistDisplay, setChecklistDisplay] = useState<ChecklistDisplay | null>(
     initialSession?.checklistDisplay ?? null,
+  )
+  const [checklistAnswered, setChecklistAnswered] = useState<ChecklistAnsweredItem[]>(
+    () => initialSession?.checklistAnswered ?? [],
+  )
+  const [checklistPending, setChecklistPending] = useState<ChecklistPendingItem[]>(
+    () => initialSession?.checklistPending ?? [],
   )
   const [checklistComplete, setChecklistComplete] = useState(false)
   const [resultId, setResultId] = useState<string | undefined>(initialSession?.resultId)
@@ -89,8 +165,32 @@ export function Home({
   // The Google place behind the suburb the customer picked. Kept for the whole session so
   // postcode/state/coordinates ride along on every later turn, not just the one that set it.
   const [place, setPlace] = useState<SuburbPlace | null>(initialSession?.place ?? null)
+  const [voiceServerReady, setVoiceServerReady] = useState(true)
+  const [voicePreparing, setVoicePreparing] = useState(false)
+  const [voiceSessionId, setVoiceSessionId] = useState(() => initialSession?.voiceSessionId)
+  const [responseOptions, setResponseOptions] = useState<ChatOption[]>(() => initialSession?.responseOptions ?? [])
+  const [lastResponseType, setLastResponseType] = useState<FencingChatResponse['type'] | undefined>(
+    () => initialSession?.lastTurnType,
+  )
   // The message whose option row just collapsed, waiting to be told which checklist field it filled.
   const pendingAnswerId = useRef<string | null>(null)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  /** Only navigate to the results face when a result is produced this sitting, not on re-open. */
+  const shouldAutoShowResult = useRef(false)
+  /** Last voice turn number already merged into messages — keyed by `n`, not array index. Greeting is 0. */
+  const voiceSyncedTurnN = useRef(-1)
+  const voiceSessionIdRef = useRef(voiceSessionId)
+  voiceSessionIdRef.current = voiceSessionId
+
+  const commitMessages = useCallback((next: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+    setMessages((prev) => {
+      const raw = typeof next === 'function' ? next(prev) : next
+      const sorted = sortMessagesByTime(raw, startedAt.current)
+      messagesRef.current = sorted
+      return sorted
+    })
+  }, [])
 
   // The whole conversation is one record, rewritten whenever it changes — a dozen turns is a
   // small document, and a write per message would cost a dozen times as much to store the same
@@ -104,21 +204,11 @@ export function Home({
       status: comparison ? 'complete' : 'in_progress',
       createdAt: startedAt.current,
       updatedAt: Date.now(),
-      messages: messages.map(({ id, role, text, options, answered, answeredField, isConfirmation, checklist: turnChecklist, expects, alternatives, checklistDisplay: turnDisplay }) => ({
-        id,
-        role,
-        text,
-        options,
-        answered,
-        answeredField,
-        isConfirmation,
-        checklist: turnChecklist,
-        expects,
-        alternatives,
-        checklistDisplay: turnDisplay ?? undefined,
-      })),
+      messages: toStoredMessages(messages),
       checklist,
       checklistDisplay: checklistDisplay ?? undefined,
+      checklistAnswered: checklistAnswered.length ? checklistAnswered : undefined,
+      checklistPending: checklistPending.length ? checklistPending : undefined,
       place,
       comparison,
       intent,
@@ -126,25 +216,96 @@ export function Home({
       resultId,
       resultMessage,
       noMatchReason,
+      responseOptions: responseOptions.length ? responseOptions : undefined,
+      lastTurnType: lastResponseType,
+      voiceSessionId,
     }),
-    [messages, checklist, checklistDisplay, place, comparison, intent, trade, sessionId, resultId, resultMessage, noMatchReason],
+    [
+      messages,
+      checklist,
+      checklistDisplay,
+      checklistAnswered,
+      checklistPending,
+      place,
+      comparison,
+      intent,
+      trade,
+      sessionId,
+      resultId,
+      resultMessage,
+      noMatchReason,
+      responseOptions,
+      lastResponseType,
+      voiceSessionId,
+    ],
   )
 
   useEffect(() => {
-    if (quoteSession.messages.length === 0) return
+    const worthSaving =
+      quoteSession.messages.length > 0 || quoteSession.status === 'complete' || !!quoteSession.resultId
+    if (!worthSaving) return
     saveQuote(quoteSession, user)
   }, [quoteSession, user])
+
+  useEffect(() => {
+    if (view === 'chat') setStage('chat')
+  }, [view])
+
+  const applyQuoteResultDoc = useCallback((doc: QuoteResultDoc) => {
+    if (doc.comparison) setComparison(doc.comparison)
+    else if (doc.results) setComparison(workerMatchesToComparison(doc.results))
+    if (doc.message) setResultMessage(doc.message)
+    if (doc.noMatchReason !== undefined) setNoMatchReason(doc.noMatchReason)
+    if (doc.place !== undefined) setPlace(doc.place ?? null)
+    if (doc.checklist) setChecklist(doc.checklist)
+    if (doc.checklistDisplay) setChecklistDisplay(doc.checklistDisplay)
+  }, [])
 
   const intentRef = useRef(intent)
   intentRef.current = intent
   const tradeRef = useRef(trade)
   tradeRef.current = trade
-  const checklistRef = useRef(checklist)
-  checklistRef.current = checklist
   const stopVoiceRef = useRef<() => void>(() => {})
 
+  const applyVoiceSessionState = useCallback((session: VoiceSession) => {
+    if (session.place !== undefined) setPlace(session.place ?? null)
+    if (session.checklist !== undefined) {
+      setChecklist((previous) => mergeChecklistData(previous, session.checklist))
+    }
+    if (session.checklistDisplay !== undefined) {
+      setChecklistDisplay((previous) => mergeChecklistDisplay(previous, session.checklistDisplay))
+    }
+    applyChecklistAnsweredState(session.checklistAnswered, setChecklistAnswered)
+    if (session.checklistPending !== undefined) setChecklistPending(session.checklistPending ?? [])
+    setResponseOptions(session.options ?? [])
+    if (session.type) setLastResponseType(session.type)
+  }, [])
+
+  const mergeVoiceSessionTurns = useCallback((session: VoiceSession): ChatMessage[] => {
+    const sid = voiceSessionIdRef.current
+    if (!sid) return messagesRef.current
+
+    const lastSeen = voiceSyncedTurnN.current
+    const fresh = freshVoiceTurns(session.turns, lastSeen)
+    if (!fresh.length) return messagesRef.current
+
+    voiceSyncedTurnN.current = lastVoiceTurnN(session.turns, lastSeen)
+    const nextMessages = mergeVoiceTurns(messagesRef.current, fresh, sid)
+    commitMessages(nextMessages)
+    return messagesRef.current
+  }, [commitMessages])
+
+  const handleVoiceSessionSync = useCallback(
+    (session: VoiceSession) => {
+      if (!session.found) return
+      applyVoiceSessionState(session)
+      mergeVoiceSessionTurns(session)
+    },
+    [applyVoiceSessionState, mergeVoiceSessionTurns],
+  )
+
   const applyTurn = useCallback(
-    (response: FencingChatResponse, previousChecklist: ChecklistData | null, answeredId: string | null, fromVoice = false) => {
+    (response: FencingChatResponse, previousChecklist: ChecklistData | null, answeredId: string | null) => {
       // The server's place always wins — sending last turn's picker object after the customer
       // moved suburb is what reopens the suburb question.
       setPlace(response.place ?? null)
@@ -156,9 +317,16 @@ export function Home({
       if (!tradeRef.current && response.trade && KNOWN_TRADES.has(response.trade)) setTrade(response.trade)
       if (response.checklist) setChecklist(response.checklist)
       if (response.checklistDisplay) setChecklistDisplay(response.checklistDisplay)
+      applyChecklistAnsweredState(response.checklistAnswered, setChecklistAnswered)
+      if (response.checklistPending) setChecklistPending(response.checklistPending)
       setChecklistComplete(response.checklistComplete ?? false)
-      if (response.resultId) setResultId(response.resultId)
+      if (response.resultId) {
+        shouldAutoShowResult.current = true
+        setResultId(response.resultId)
+      }
       if (response.noMatchReason !== undefined) setNoMatchReason(response.noMatchReason)
+      setResponseOptions(response.options ?? [])
+      setLastResponseType(response.type)
 
       const filledField = diffFilledField(previousChecklist, response.checklist)
       const labelAnswer = (previous: ChatMessage[]) =>
@@ -170,6 +338,7 @@ export function Home({
         (response.intent === 'compare_quote' && !!response.comparison) || response.type === 'result'
       if (isResultPage) {
         stopVoiceRef.current()
+        shouldAutoShowResult.current = true
         setComparison(response.comparison ?? workerMatchesToComparison(response.results ?? []))
         setResultMessage(response.message)
         setView('result')
@@ -178,7 +347,7 @@ export function Home({
 
       const expectsSuburb =
         isPlacesConfigured() && (response.expects === 'suburb' || ASKS_FOR_SUBURB.test(response.message))
-      const turn = {
+      const turn = withCreatedAt({
         id: generateId(),
         role: 'ai' as const,
         text: response.message,
@@ -188,29 +357,163 @@ export function Home({
         isConfirmation: response.type === 'confirmation',
         expects: expectsSuburb ? ('suburb' as const) : undefined,
         alternatives: response.alternatives,
-      }
+      })
 
-      setMessages((previous) => {
+      commitMessages((previous) => {
         const labelled = labelAnswer(previous)
-        if (fromVoice) {
-          const last = labelled.at(-1)
-          if (last?.role === 'ai' && !last.answered) return [...labelled.slice(0, -1), { ...turn, id: last.id }]
-        }
         return [...labelled, turn]
       })
 
       if (expectsSuburb && response.suggestedSuburb) void prefillSuburb(turn.id, response.suggestedSuburb)
     },
-    [],
+    [commitMessages],
   )
 
+  const handleVoiceHandover = useCallback(
+    (session: VoiceSession | null, voiceSessionIdFromCall: string) => {
+      if (voiceSessionIdFromCall) setVoiceSessionId(voiceSessionIdFromCall)
+
+      const openChat = () => setStage('chat')
+
+      if (!session?.found) {
+        openChat()
+        commitMessages((previous) => [
+          ...previous,
+          withCreatedAt({
+            id: generateId(),
+            role: 'ai',
+            text: "That call didn't save properly. Tap the microphone to try again.",
+          }),
+        ])
+        return
+      }
+
+      if (session.place !== undefined) setPlace(session.place ?? null)
+      if (session.checklist !== undefined) {
+        setChecklist((previous) => mergeChecklistData(previous, session.checklist))
+      }
+      if (session.checklistDisplay !== undefined) {
+        setChecklistDisplay((previous) => mergeChecklistDisplay(previous, session.checklistDisplay))
+      }
+      applyChecklistAnsweredState(session.checklistAnswered, setChecklistAnswered)
+      if (session.checklistPending !== undefined) setChecklistPending(session.checklistPending ?? [])
+      setResponseOptions(session.options ?? [])
+      setLastResponseType(session.type)
+
+      mergeVoiceSessionTurns(session)
+      const nextMessages = messagesRef.current
+
+      if (session.resultId) {
+        shouldAutoShowResult.current = true
+        setResultId(session.resultId)
+
+        void (async () => {
+          const doc = await fetchQuoteResult(session.resultId!)
+          let nextComparison = comparison
+          let nextResultMessage = resultMessage
+          let nextNoMatchReason = noMatchReason
+          let nextPlace = place
+          let nextChecklist = checklist
+          let nextChecklistDisplay = checklistDisplay
+          let nextChecklistAnswered = checklistAnswered
+
+          if (doc && isQuoteResultReady(doc)) {
+            nextComparison =
+              doc.comparison ?? (doc.results ? workerMatchesToComparison(doc.results) : null) ?? nextComparison
+            if (doc.message) nextResultMessage = doc.message
+            if (doc.noMatchReason !== undefined) nextNoMatchReason = doc.noMatchReason
+            if (doc.place !== undefined) nextPlace = doc.place ?? null
+            if (doc.checklist) nextChecklist = doc.checklist
+            if (doc.checklistDisplay) nextChecklistDisplay = doc.checklistDisplay
+            applyQuoteResultDoc(doc)
+          }
+
+          saveQuote(
+            {
+              sessionId,
+              status: 'complete',
+              createdAt: startedAt.current,
+              updatedAt: Date.now(),
+              messages: toStoredMessages(nextMessages),
+              checklist: session.checklist ?? nextChecklist,
+              checklistDisplay: nextChecklistDisplay ?? undefined,
+              checklistAnswered: nextChecklistAnswered.length ? nextChecklistAnswered : undefined,
+              checklistPending: session.checklistPending?.length ? session.checklistPending : undefined,
+              place: session.place ?? nextPlace,
+              comparison: nextComparison,
+              intent,
+              trade,
+              resultId: session.resultId,
+              resultMessage: nextResultMessage,
+              noMatchReason: nextNoMatchReason,
+              responseOptions: session.options ?? [],
+              lastTurnType: session.type,
+              voiceSessionId: voiceSessionIdFromCall || voiceSessionId,
+            },
+            user,
+          )
+
+          openChat()
+          setView('result')
+        })()
+        return
+      }
+
+      openChat()
+    },
+    [
+      applyQuoteResultDoc,
+      checklist,
+      checklistDisplay,
+      checklistAnswered,
+      comparison,
+      intent,
+      noMatchReason,
+      place,
+      resultMessage,
+      sessionId,
+      trade,
+      user,
+      mergeVoiceSessionTurns,
+      voiceSessionId,
+      commitMessages,
+    ],
+  )
+
+  const showVoice = isVoiceCallConfigured() && voiceServerReady
+
   const { status: voiceStatus, start: startVoice, stop: stopVoice, isActive: isVoiceActive } = useVoiceCall({
-    sessionId,
-    place,
-    knownChecklist: checklist,
-    onUiUpdate: (response) => applyTurn(response, checklistRef.current, null, true),
-    onEnded: (endedResultId) => {
-      if (endedResultId) setResultId(endedResultId)
+    onSessionStarted: (id) => {
+      voiceSyncedTurnN.current = -1
+      setVoiceSessionId(id)
+      voiceSessionIdRef.current = id
+    },
+    onCallStarted: () => {
+      const sid = voiceSessionIdRef.current
+      if (!sid) return
+      commitMessages((previous) => [...previous, voiceModeOnDivider(sid)])
+    },
+    onCallEnding: () => {
+      const sid = voiceSessionIdRef.current
+      if (sid) {
+        commitMessages((previous) => [...previous, voiceModeOffDivider(sid)])
+      }
+      setStage('thinking')
+    },
+    onHandover: handleVoiceHandover,
+    onSessionSync: handleVoiceSessionSync,
+    onConfigureUnavailable: () => setVoiceServerReady(false),
+    onRateLimited: () => {
+      commitMessages((previous) => [
+        ...previous,
+        withCreatedAt({ id: generateId(), role: 'ai', text: VOICE_RATE_LIMIT_MESSAGE }),
+      ])
+    },
+    onStartFailed: (message) => {
+      commitMessages((previous) => [
+        ...previous,
+        withCreatedAt({ id: generateId(), role: 'ai', text: message, isError: true, retryable: true }),
+      ])
     },
   })
   stopVoiceRef.current = stopVoice
@@ -221,14 +524,11 @@ export function Home({
     let unsub: (() => void) | undefined
     void listenQuoteResult(resultId, (doc) => {
       if (!isQuoteResultReady(doc)) return
-      if (doc.comparison) setComparison(doc.comparison)
-      else if (doc.results) setComparison(workerMatchesToComparison(doc.results))
-      if (doc.message) setResultMessage(doc.message)
-      if (doc.noMatchReason !== undefined) setNoMatchReason(doc.noMatchReason)
-      if (doc.place !== undefined) setPlace(doc.place ?? null)
-      if (doc.checklist) setChecklist(doc.checklist)
-      if (doc.checklistDisplay) setChecklistDisplay(doc.checklistDisplay)
-      setView('result')
+      applyQuoteResultDoc(doc)
+      if (shouldAutoShowResult.current) {
+        setView('result')
+        shouldAutoShowResult.current = false
+      }
     }).then((stop) => {
       if (cancelled) stop()
       else unsub = stop
@@ -237,7 +537,7 @@ export function Home({
       cancelled = true
       unsub?.()
     }
-  }, [resultId])
+  }, [resultId, applyQuoteResultDoc])
 
   async function sendMessage(
     apiText: string,
@@ -246,7 +546,7 @@ export function Home({
     // Passed explicitly by the turn that just confirmed a suburb — `place` state hasn't
     // re-rendered yet at that point.
     confirmedPlace?: SuburbPlace | null,
-  ) {
+  ): Promise<FencingChatResponse | null> {
     setIsLoading(true)
     setPendingFiles(quoteFiles ?? null)
     // Captured before the request so the response can be diffed against it — that diff is what
@@ -264,6 +564,7 @@ export function Home({
         place: confirmedPlace ?? place,
       })
       applyTurn(response, previousChecklist, answeredId)
+      return response
     } catch (error) {
       const chatError = error instanceof FencingChatError ? error : null
       const customerMessage = chatError?.message ?? FENCING_CHAT_FALLBACK_MESSAGE
@@ -292,6 +593,9 @@ export function Home({
           setChecklistComplete(chatError.checklistComplete)
         }
       }
+      if (chatError?.checklistDisplay) setChecklistDisplay(chatError.checklistDisplay)
+      applyChecklistAnsweredState(chatError?.checklistAnswered, setChecklistAnswered)
+      if (chatError?.checklistPending) setChecklistPending(chatError.checklistPending)
 
       if (retryable) {
         setLastFailedText(apiText)
@@ -301,17 +605,18 @@ export function Home({
         setLastFailedFiles(null)
       }
 
-      setMessages((previous) => [
+      commitMessages((previous) => [
         ...previous,
-        {
+        withCreatedAt({
           id: generateId(),
           role: 'ai',
           text: customerMessage,
           isError: true,
           retryable,
           checklist: chatError?.checklist ?? previousChecklist,
-        },
+        }),
       ])
+      return null
     } finally {
       setIsLoading(false)
       // The thinking screen only ever covers the wait, so the wait ending always ends it —
@@ -329,7 +634,7 @@ export function Home({
     if (isLoading) return
     const target = messages.find((m) => m.id === messageId)
     pendingAnswerId.current = messageId
-    setMessages((previous) => previous.map((m) => (m.id === messageId ? { ...m, answered: option } : m)))
+    commitMessages((previous) => previous.map((m) => (m.id === messageId ? { ...m, answered: option } : m)))
     void sendMessage(String(option.value), undefined, !!target?.isConfirmation && String(option.value) === 'yes')
   }
 
@@ -339,7 +644,7 @@ export function Home({
   const handleSelectPlace = (messageId: string, selected: SuburbPlace) => {
     if (isLoading) return
     setPlace(selected)
-    setMessages((previous) =>
+    commitMessages((previous) =>
       previous.map((m) =>
         m.id === messageId
           ? { ...m, answered: { label: selected.displayLabel, value: selected.displayLabel }, answeredField: 'suburb' }
@@ -359,7 +664,7 @@ export function Home({
     try {
       const suggestions = await searchSuburbs(suburbSearchQuery(text), sessionToken)
       if (suggestions.length === 0) return
-      setMessages((previous) =>
+      commitMessages((previous) =>
         previous.map((message) =>
           message.id === messageId ? { ...message, suggestions, query: text, sessionToken } : message,
         ),
@@ -379,9 +684,9 @@ export function Home({
       const query = suburbSearchQuery(text)
       let suggestions = await searchSuburbs(query, sessionToken)
       if (suggestions.length === 0 && query !== text) suggestions = await searchSuburbs(text, sessionToken)
-      setMessages((previous) => [
+      commitMessages((previous) => [
         ...previous,
-        {
+        withCreatedAt({
           id: generateId(),
           role: 'ai',
           text: suggestions.length
@@ -391,19 +696,19 @@ export function Home({
           suggestions,
           query: text,
           sessionToken,
-        },
+        }),
       ])
     } catch {
-      setMessages((previous) => [
+      commitMessages((previous) => [
         ...previous,
-        {
+        withCreatedAt({
           id: generateId(),
           role: 'ai',
           text: "Suburb search isn't responding right now. Type your suburb again in a moment.",
           expects: 'suburb',
           query: text,
           sessionToken,
-        },
+        }),
       ])
     } finally {
       setIsLoading(false)
@@ -411,7 +716,7 @@ export function Home({
   }
 
   const handleSend = (text: string) => {
-    setMessages((previous) => [...previous, { id: generateId(), role: 'user', text }])
+    commitMessages((previous) => [...previous, withCreatedAt({ id: generateId(), role: 'user', text })])
     const lastAi = messages.findLast((m) => m.role === 'ai')
     // Typed into the composer instead of the picker: look it up rather than sending it on. The
     // suburb only ever reaches the workflow as a place the customer confirmed from Google's
@@ -426,28 +731,63 @@ export function Home({
 
   const handleRetry = () => {
     if (!lastFailedText) return
-    setMessages((previous) => previous.filter((m) => !m.isError))
+    commitMessages((previous) => previous.filter((m) => !m.isError))
     void sendMessage(lastFailedText, lastFailedFiles)
   }
 
   const handleHeroSubmit = (quoteFiles: File[]) => {
     setStage('chat')
-    setMessages([{ id: generateId(), role: 'user', text: description }])
+    commitMessages([withCreatedAt({ id: generateId(), role: 'user', text: description })])
     void sendMessage(description, quoteFiles)
   }
 
-  const handleStartVoice = () => {
+  const handleStartVoice = (quoteFiles: File[] | unknown = []) => {
+    if (voicePreparing || isLoading || isVoiceActive) return
+    const files = Array.isArray(quoteFiles) ? quoteFiles : []
+    setVoicePreparing(true)
     setStage('chat')
-    if (description.trim() && messages.length === 0) {
-      setMessages([{ id: generateId(), role: 'user', text: description.trim() }])
-    }
-    void startVoice(description.trim() || undefined)
+    void (async () => {
+      try {
+        const hasPdf = files.some((file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name))
+        let context: VoiceCallContext
+
+        if (hasPdf) {
+          const text = description.trim() || messagesRef.current.find((message) => message.role === 'user')?.text || ''
+          if (text && messagesRef.current.length === 0) {
+            commitMessages([withCreatedAt({ id: generateId(), role: 'user', text })])
+          }
+          const response = await sendMessage(text, files)
+          if (!response) return
+          context = {
+            checklist: response.checklist ?? checklist,
+            place: response.place ?? place,
+            options: response.options?.length ? response.options : null,
+            message: response.message,
+            checklistDisplay: response.checklistDisplay ?? checklistDisplay,
+            checklistAnswered: response.checklistAnswered ?? checklistAnswered,
+          }
+        } else {
+          context = voiceContextFromState({
+            checklist,
+            place,
+            responseOptions,
+            checklistDisplay,
+            checklistAnswered,
+            messages: messagesRef.current,
+          })
+        }
+
+        await startVoice(context)
+      } finally {
+        setVoicePreparing(false)
+      }
+    })()
   }
 
   const handleRestart = () => {
     stopVoice()
     setSessionId(generateId())
-    setMessages([])
+    commitMessages([])
     setIntent(undefined)
     setTrade(null)
     setLastFailedText(null)
@@ -457,11 +797,18 @@ export function Home({
     setSelectedType(null)
     setChecklist(null)
     setChecklistDisplay(null)
+    setChecklistAnswered([])
+    setChecklistPending([])
     setChecklistComplete(false)
     setResultId(undefined)
     setResultMessage(undefined)
     setNoMatchReason(undefined)
     setPlace(null)
+    setResponseOptions([])
+    setLastResponseType(undefined)
+    setVoiceSessionId(undefined)
+    voiceSyncedTurnN.current = -1
+    setVoicePreparing(false)
     pendingAnswerId.current = null
     startedAt.current = Date.now()
     setStage('hero')
@@ -478,10 +825,21 @@ export function Home({
         place={place}
         quoteSession={quoteSession}
         onBack={handleRestart}
-        onViewChat={() => setView('chat')}
+        onViewChat={() => {
+          setView('chat')
+          setStage('chat')
+        }}
       />
     )
   }
+
+  const voiceBusy = isLoading || voicePreparing || isVoiceActive
+  const voicePreparingLabel =
+    voicePreparing && isLoading && pendingFiles?.some((file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name))
+      ? 'Reading your document…'
+      : voicePreparing
+        ? 'Connecting…'
+        : undefined
 
   // The thread owns the viewport: the page itself never scrolls, the message list and the
   // brief sidebar each scroll on their own so the composer stays put.
@@ -512,14 +870,23 @@ export function Home({
             pendingFiles={pendingFiles}
             trade={trade}
             voiceStatus={voiceStatus}
+            voicePreparing={voicePreparing}
+            voicePreparingLabel={voicePreparingLabel}
+            pendingOptions={
+              !isVoiceActive && !voicePreparing && !resultId && responseOptions.length ? responseOptions : undefined
+            }
+            pendingTurnType={!resultId ? lastResponseType : undefined}
+            pendingChecklist={!resultId ? checklist : undefined}
+            pendingChecklistAnswered={!resultId ? checklistAnswered : undefined}
+            interactionDisabled={isVoiceActive}
             onSend={handleSend}
             onSelectOption={handleSelectOption}
             onSelectPlace={handleSelectPlace}
             onRetry={handleRetry}
-            onStartVoice={isVoiceCallConfigured() ? handleStartVoice : undefined}
+            onStartVoice={showVoice && !voiceBusy ? handleStartVoice : undefined}
             onHangUp={isVoiceActive ? stopVoice : undefined}
           />
-          <ChecklistPanel checklist={checklist} checklistDisplay={checklistDisplay} />
+          <ChecklistPanel checklistAnswered={checklistAnswered} checklistPending={checklistPending} />
         </div>
       </div>
     )
@@ -561,7 +928,8 @@ export function Home({
             setTrade(CHIP_TRADE[type] ?? null)
           }}
           onSubmit={handleHeroSubmit}
-          onStartVoice={isVoiceCallConfigured() ? handleStartVoice : undefined}
+          onStartVoice={showVoice ? handleStartVoice : undefined}
+          voiceDisabled={voiceBusy}
         />
       )}
 

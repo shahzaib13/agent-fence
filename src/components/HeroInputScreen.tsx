@@ -3,13 +3,24 @@ import { generateId } from '../utils/id'
 
 const PROJECT_TYPES = ['Fence', 'Tiling', 'Deck', 'Pergola', 'Retaining Wall', 'Driveway', 'Bathroom', 'Kitchen', 'Extension']
 
-function IconButton({ label, path, onClick }: { label: string; path: string; onClick?: () => void }) {
+function IconButton({
+  label,
+  path,
+  onClick,
+  disabled,
+}: {
+  label: string
+  path: string
+  onClick?: () => void
+  disabled?: boolean
+}) {
   return (
     <button
       type="button"
       aria-label={label}
+      disabled={disabled}
       onClick={onClick}
-      className="rounded-full p-1.5 text-gray-400 transition-all duration-150 hover:scale-110 hover:bg-gray-100 hover:text-gray-600 active:scale-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+      className={`rounded-full p-1.5 text-gray-400 transition-all duration-150 hover:scale-110 hover:bg-gray-100 hover:text-gray-600 active:scale-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100 disabled:hover:bg-transparent disabled:hover:text-gray-400`}
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-5 w-5">
         <path strokeLinecap="round" strokeLinejoin="round" d={path} />
@@ -87,13 +98,15 @@ export function HeroInputScreen({
   onSelectType,
   onSubmit,
   onStartVoice,
+  voiceDisabled,
 }: {
   description: string
   onDescriptionChange: (v: string) => void
   selectedType: string | null
   onSelectType: (t: string) => void
   onSubmit: (quoteFiles: File[]) => void
-  onStartVoice?: () => void
+  onStartVoice?: (quoteFiles: File[]) => void
+  voiceDisabled?: boolean
 }) {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -238,7 +251,8 @@ export function HeroInputScreen({
               <IconButton
                 label="Start voice call"
                 path="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v3"
-                onClick={onStartVoice}
+                disabled={voiceDisabled}
+                onClick={() => onStartVoice?.(pickQuoteFiles())}
               />
               <IconButton
                 label="Attach photo"

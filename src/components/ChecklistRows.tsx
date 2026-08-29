@@ -25,6 +25,18 @@ function BriefRow({ done, children }: { done: boolean; children: ReactNode }) {
   )
 }
 
+export function ChecklistAnsweredRows({ answered }: { answered: import('../services/voice').ChecklistAnsweredItem[] }) {
+  return (
+    <ul className="flex flex-col gap-4">
+      {answered.map((item) => (
+        <BriefRow key={item.key} done>
+          {item.title}: {item.value}
+        </BriefRow>
+      ))}
+    </ul>
+  )
+}
+
 /** Backend-authored titles and values. `_ui` is skipped if it ever appears here. */
 export function ChecklistDisplayRows({ display }: { display: ChecklistDisplay }) {
   return (

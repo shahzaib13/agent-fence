@@ -12,6 +12,7 @@ import type {
   ChecklistData,
   ChecklistDisplay,
   ComparisonSummary,
+  FencingChatResponse,
 } from './fencingChat'
 import type { SuburbPlace } from './places'
 import { getDb } from './firebase'
@@ -24,8 +25,10 @@ const LOCAL_LIMIT = 20
 /** A chat turn, stripped to what it takes to render the thread again. */
 export interface StoredMessage {
   id: string
-  role: 'user' | 'ai'
+  role: 'user' | 'ai' | 'divider'
   text: string
+  createdAt?: number
+  isVoice?: boolean
   options?: ChatOption[]
   answered?: ChatOption
   answeredField?: string
@@ -54,6 +57,13 @@ export interface QuoteSession {
   resultMessage?: string
   noMatchReason?: string
   checklistDisplay?: ChecklistDisplay
+  checklistAnswered?: import('./voice').ChecklistAnsweredItem[]
+  checklistPending?: import('./voice').ChecklistPendingItem[]
+  /** Latest option row from the last chat/voice turn — needed to continue by voice. */
+  responseOptions?: ChatOption[]
+  lastTurnType?: FencingChatResponse['type']
+  /** Retell call id — separate from `sessionId`, which is the quote doc key. */
+  voiceSessionId?: string
   /** Set once the session has an owner; absent means it is still a guest's. */
   uid?: string
   phone?: string
