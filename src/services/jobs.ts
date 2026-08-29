@@ -59,11 +59,16 @@ function buildJobId(state: string) {
   return `${prefix}-${Math.floor(10000 + Math.random() * 90000)}`
 }
 
-/** locationData as the user document stores it — flat, no geo types. */
+/**
+ * locationData as the user document stores it — flat, no geo types.
+ * Place objects can arrive incomplete (API / voice / quoteResults), and Firestore
+ * rejects `undefined` in WriteBatch.set — so defaults fill the AU constants and
+ * any remaining undefined keys are dropped.
+ */
 function locationData(place: SuburbPlace) {
-  return {
-    country: place.country,
-    countryName: place.countryName,
+  const data: Record<string, unknown> = {
+    country: place.country || 'AU',
+    countryName: place.countryName || 'Australia',
     displayLabel: place.displayLabel,
     formattedAddress: place.formattedAddress,
     latitude: place.latitude,
@@ -76,6 +81,10 @@ function locationData(place: SuburbPlace) {
     stateFullName: place.stateFullName,
     suburb: place.suburb,
   }
+  for (const key of Object.keys(data)) {
+    if (data[key] === undefined) delete data[key]
+  }
+  return data
 }
 
 type FirestoreGetDoc = (ref: { path: string }) => Promise<{
