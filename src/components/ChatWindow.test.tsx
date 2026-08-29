@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setVoiceLiveLines } from '../utils/voiceLiveStore'
 import { ChatWindow, type ChatMessage } from './ChatWindow'
 
 const question: ChatMessage = {
@@ -33,6 +34,7 @@ const fakeFile = (name: string, type: string) => new File(['x'], name, { type })
 describe('ChatWindow', () => {
   afterEach(() => {
     vi.useRealTimers()
+    setVoiceLiveLines([])
   })
 
   it('cycles the pending bubble through its thinking lines and dots while the reply is in flight', () => {
@@ -70,12 +72,11 @@ describe('ChatWindow', () => {
     expect(screen.getByText('Reading what you sent')).toBeInTheDocument()
   })
 
-  it('renders an older turn in full straight away instead of replaying its reveal', () => {
+  it('does not show option tiles on older AI turns once a newer reply lands', () => {
     renderWindow([question, { id: 'ai-2', role: 'ai', text: 'And how long is it?' }])
 
-    // ai-1 is no longer the newest reply, so its text and tiles are there without waiting
     expect(screen.getByText('What type of fence are you after?')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Timber' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Timber' })).not.toBeInTheDocument()
   })
 
   it('shows Try again on retryable errors and hides it when retryable is false', () => {
@@ -106,18 +107,18 @@ describe('ChatWindow', () => {
   it('passes the picked option back with the message it belongs to', async () => {
     const user = userEvent.setup()
     const onSelectOption = vi.fn()
-    renderWindow([question, { id: 'ai-2', role: 'ai', text: 'Pick one.' }], false, { onSelectOption })
+    renderWindow([question], false, { onSelectOption })
 
-    await user.click(screen.getByRole('button', { name: 'Colorbond' }))
+    await user.click(await screen.findByRole('button', { name: 'Colorbond' }))
 
     expect(onSelectOption).toHaveBeenCalledWith('ai-1', question.options?.[1])
   })
 
-  it('locks the composer and the tiles while a reply is in flight', () => {
-    renderWindow([question, { id: 'ai-2', role: 'ai', text: 'Pick one.' }], true)
+  it('locks the composer and the tiles while a reply is in flight', async () => {
+    renderWindow([question], true)
 
     expect(screen.getByLabelText(/your reply/i)).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Timber' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: 'Timber' })).toBeDisabled()
     expect(screen.getByRole('status', { name: /waiting for a reply/i })).toBeInTheDocument()
   })
 
@@ -256,5 +257,17 @@ describe('ChatWindow', () => {
       label: "No thanks, I'll change something",
       value: 'no',
     })
+  })
+
+  it('draws voice mode dividers with the curly rule class', () => {
+    renderWindow([{ id: 'v-vs-1-divider-on', role: 'divider', text: 'Voice mode on' }])
+    const divider = screen.getByRole('separator', { name: 'Voice mode on' })
+    expect(divider).toHaveClass('voice-divider')
+  })
+
+  it('renders live agent text from the overlay store, not the message list', () => {
+    setVoiceLiveLines([{ role: 'assistant', text: 'How long is the fence going to be?' }])
+    renderWindow([])
+    expect(screen.getByLabelText('Live call transcript')).toHaveTextContent('How long is the fence going to be?')
   })
 })

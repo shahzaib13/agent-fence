@@ -7,9 +7,12 @@ import {
   type ChatOption,
   type ChecklistData,
   type ChecklistDisplay,
+  type FencingChatResponse,
 } from '../services/fencingChat'
 import type { SuburbPlace, SuburbSuggestion } from '../services/places'
+import type { ChecklistAnsweredItem } from '../services/voice'
 import { checklistFieldLabel } from '../utils/checklist'
+import { useVoiceLiveLines } from '../utils/voiceLiveStore'
 import { AlternativeOffers } from './AlternativeOffers'
 import { ConfirmationCard } from './ConfirmationCard'
 import { SuburbPicker } from './SuburbPicker'
@@ -17,8 +20,12 @@ import { VoiceBar } from './VoiceBar'
 
 export interface ChatMessage {
   id: string
-  role: 'user' | 'ai'
+  role: 'user' | 'ai' | 'divider'
   text: string
+  /** Epoch ms — interleaves typed and voice turns chronologically. */
+  createdAt?: number
+  /** Settled voice bubble — shows a mic glyph; never carries MCQ pills. */
+  isVoice?: boolean
   options?: ChatOption[]
   // Only carried by `confirmation` turns — the recap card renders it inline in the thread.
   checklist?: ChecklistData | null
@@ -42,6 +49,14 @@ export interface ChatMessage {
   isError?: boolean
   /** When `isError`, whether to show Try again. Omitted on older threads → treat as retryable. */
   retryable?: boolean
+}
+
+function MicGlyph({ className = 'h-3.5 w-3.5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className={className} aria-hidden="true">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3ZM6 11a6 6 0 0 0 12 0M12 17v3" />
+    </svg>
+  )
 }
 
 function CheckBadge() {
@@ -204,6 +219,55 @@ function OptionRow({
   )
 }
 
+function LiveTranscript({ onGrow }: { onGrow: () => void }) {
+  const lines = useVoiceLiveLines()
+  useLayoutEffect(() => {
+    onGrow()
+  }, [lines, onGrow])
+  if (lines.length === 0) return null
+  return (
+    <div className="flex flex-col gap-4 opacity-70" aria-live="polite" aria-label="Live call transcript">
+      {lines.map((line, index) =>
+        line.role === 'user' ? (
+          <UserTurn key={`live-user-${index}`} text={line.text} isVoice />
+        ) : (
+          <LiveAgentTurn key={`live-ai-${index}`} text={line.text} />
+        ),
+      )}
+    </div>
+  )
+}
+
+function LiveAgentTurn({ text }: { text: string }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="flex items-center gap-1.5 pl-12 text-xs font-medium tracking-wide text-gray-400">
+        <MicGlyph className="h-3 w-3" />
+        AI
+      </p>
+      <div className="flex items-end gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#062D27] text-white">
+          <MicGlyph className="h-4 w-4" />
+        </span>
+        <p className="max-w-2xl rounded-3xl rounded-bl-lg border border-gray-100 bg-white px-5 py-4 text-[15px] leading-relaxed whitespace-pre-wrap text-[#0B3A33] shadow-[0_2px_14px_rgba(6,45,39,0.04)]">
+          {text}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function VoiceDivider({ text }: { text: string }) {
+  return (
+    <div className="voice-divider py-2" role="separator" aria-label={text}>
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium tracking-wide text-gray-400">
+        <MicGlyph className="h-3 w-3" />
+        {text}
+      </span>
+    </div>
+  )
+}
+
 function AiTurn({
   message,
   animate,
@@ -214,6 +278,10 @@ function AiTurn({
   onSelectPlace,
   onRetry,
   onGrow,
+  pageOptions,
+  pageTurnType,
+  pageChecklist,
+  pageChecklistAnswered,
 }: {
   message: ChatMessage
   animate: boolean
@@ -224,12 +292,39 @@ function AiTurn({
   onSelectPlace: (place: SuburbPlace) => void
   onRetry: () => void
   onGrow: () => void
+  pageOptions?: ChatOption[]
+  pageTurnType?: FencingChatResponse['type']
+  pageChecklist?: ChecklistData | null
+  pageChecklistAnswered?: ChecklistAnsweredItem[]
 }) {
   const words = useMemo(() => message.text.split(' '), [message.text])
   const revealed = useWordReveal(words.length, animate)
   const revealDone = revealed >= words.length
-  const hasOptions = !!message.options && message.options.length > 0
+  // Voice bubbles never show MCQ pills — call transcript only. Text-chat options stay last-turn-only.
+  const activeOptions =
+    message.isVoice || message.answered
+      ? undefined
+      : isLast
+        ? pageOptions?.length
+          ? pageOptions
+          : message.options
+        : undefined
+  const isConfirmation =
+    !message.isVoice &&
+    isLast &&
+    (pageOptions?.length ? pageTurnType === 'confirmation' : !!message.isConfirmation)
+  const confirmationChecklist = isLast && pageChecklist ? pageChecklist : message.checklist
+  const confirmationAnswered =
+    isLast && pageChecklistAnswered?.length ? pageChecklistAnswered : undefined
+  const showConfirmationCard =
+    revealDone &&
+    (isConfirmation || (!!message.answered && !!message.isConfirmation)) &&
+    (!!confirmationChecklist || !!confirmationAnswered?.length || !!message.checklistDisplay)
+  const hasOptions = !!activeOptions && activeOptions.length > 0
   const hasAlternatives = !!message.alternatives && message.alternatives.length > 0
+  const optionMessage: ChatMessage = { ...message, options: activeOptions, isConfirmation, checklist: confirmationChecklist }
+  const showOptionRow =
+    revealDone && !message.isConfirmation && (hasOptions || !!message.answered) && !hasAlternatives && !showConfirmationCard
 
   // Keep the thread pinned to the bottom as the reply reveals itself and its card drops in,
   // so the newest content stays in view without the user chasing it.
@@ -241,10 +336,13 @@ function AiTurn({
     <div className="flex flex-col gap-2 animate-[fade-in-up_0.35s_ease-out]">
       {/* Indented to the bubble's own left edge, not the avatar's — the avatar sits outside
           the column of content it belongs to. */}
-      <p className="pl-12 text-xs font-medium tracking-wide text-gray-400">AI</p>
+      <p className="flex items-center gap-1.5 pl-12 text-xs font-medium tracking-wide text-gray-400">
+        {message.isVoice ? <MicGlyph className="h-3 w-3" /> : null}
+        AI
+      </p>
       <div className="flex items-end gap-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#062D27] text-sm font-semibold text-white">
-          A
+          {message.isVoice ? <MicGlyph className="h-4 w-4 text-white" /> : 'A'}
         </span>
         <div className="max-w-2xl rounded-3xl rounded-bl-lg border border-gray-100 bg-white px-5 py-4 shadow-[0_2px_14px_rgba(6,45,39,0.04)]">
           {/* Split into per-word spans only while the reveal is running; once every word has
@@ -280,27 +378,27 @@ function AiTurn({
 
         {/* Cards wait for the sentence above them to finish landing — the reply reads first,
             then the thing you act on arrives. */}
-        {revealDone && message.isConfirmation && message.checklist && (
+        {revealDone && showConfirmationCard && (
           <ConfirmationCard
-            checklist={message.checklist}
+            checklistAnswered={confirmationAnswered}
             checklistDisplay={message.checklistDisplay}
-            options={message.options ?? []}
+            options={activeOptions ?? message.options ?? []}
             answered={message.answered}
             disabled={disabled}
             onSelectOption={onSelect}
           />
         )}
-        {revealDone && hasAlternatives && !message.isConfirmation && (
+        {revealDone && hasAlternatives && !showConfirmationCard && (
           <AlternativeOffers
             alternatives={message.alternatives ?? []}
-            options={message.options ?? []}
+            options={activeOptions ?? []}
             answered={message.answered}
             disabled={disabled}
             onSelect={onSelect}
           />
         )}
-        {revealDone && hasOptions && !hasAlternatives && !message.isConfirmation && (
-          <OptionRow message={message} disabled={disabled} otherInputMode={otherInputMode} onSelect={onSelect} />
+        {showOptionRow && (
+          <OptionRow message={optionMessage} disabled={disabled} otherInputMode={otherInputMode} onSelect={onSelect} />
         )}
 
         {/* A suburb turn answers itself through the picker, so the composer never has to carry
@@ -328,10 +426,13 @@ function AiTurn({
   )
 }
 
-function UserTurn({ text }: { text: string }) {
+function UserTurn({ text, isVoice }: { text: string; isVoice?: boolean }) {
   return (
     <div className="flex flex-col items-end gap-2 animate-[fade-in-up_0.3s_ease-out]">
-      <p className="text-xs font-medium tracking-wide text-gray-400">You</p>
+      <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-gray-400">
+        {isVoice ? <MicGlyph className="h-3 w-3" /> : null}
+        You
+      </p>
       <p className="max-w-xl rounded-3xl rounded-br-lg bg-[#EFF3F2] px-5 py-3 text-[15px] leading-relaxed whitespace-pre-wrap text-[#0B3A33]">
         {text}
       </p>
@@ -423,6 +524,13 @@ export function ChatWindow({
   pendingFiles,
   trade,
   voiceStatus,
+  voicePreparing,
+  voicePreparingLabel,
+  pendingOptions,
+  pendingTurnType,
+  pendingChecklist,
+  pendingChecklistAnswered,
+  interactionDisabled,
   onSend,
   onSelectOption,
   onSelectPlace,
@@ -435,6 +543,13 @@ export function ChatWindow({
   pendingFiles?: File[] | null
   trade?: string | null
   voiceStatus?: VoiceStatus
+  voicePreparing?: boolean
+  voicePreparingLabel?: string
+  pendingOptions?: ChatOption[]
+  pendingTurnType?: FencingChatResponse['type']
+  pendingChecklist?: ChecklistData | null
+  pendingChecklistAnswered?: ChecklistAnsweredItem[]
+  interactionDisabled?: boolean
   onSend: (text: string) => void
   onSelectOption: (messageId: string, option: ChatOption) => void
   onSelectPlace: (messageId: string, place: SuburbPlace) => void
@@ -443,6 +558,7 @@ export function ChatWindow({
   onHangUp?: () => void
 }) {
   const otherInputMode = trade === 'fencing' ? 'text' : 'numeric'
+  const controlsDisabled = isLoading || !!interactionDisabled
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
@@ -488,34 +604,43 @@ export function ChatWindow({
       >
         <div className="mx-auto flex w-full max-w-400 flex-col gap-8 py-10">
           {messages.map((message) =>
-            message.role === 'user' ? (
-              <UserTurn key={message.id} text={message.text} />
+            message.role === 'divider' ? (
+              <VoiceDivider key={message.id} text={message.text} />
+            ) : message.role === 'user' ? (
+              <UserTurn key={message.id} text={message.text} isVoice={message.isVoice} />
             ) : (
               <AiTurn
                 key={message.id}
                 message={message}
-                animate={message.id === lastAiId}
-                disabled={isLoading}
+                animate={message.id === lastAiId && !message.isVoice}
+                disabled={controlsDisabled}
                 isLast={message.id === lastAiId}
                 otherInputMode={otherInputMode}
                 onSelect={(option) => onSelectOption(message.id, option)}
                 onSelectPlace={(place) => onSelectPlace(message.id, place)}
                 onRetry={onRetry}
                 onGrow={stickToBottom}
+                pageOptions={message.id === lastAiId ? pendingOptions : undefined}
+                pageTurnType={message.id === lastAiId ? pendingTurnType : undefined}
+                pageChecklist={message.id === lastAiId ? pendingChecklist : undefined}
+                pageChecklistAnswered={message.id === lastAiId ? pendingChecklistAnswered : undefined}
               />
             ),
           )}
+          <LiveTranscript onGrow={stickToBottom} />
           {isLoading && <PendingTurn files={pendingFiles} />}
         </div>
       </div>
 
-      {voiceStatus && voiceStatus !== 'idle' && voiceStatus !== 'error' && onHangUp ? (
+      {voicePreparing ? (
+        <VoiceBar status="connecting" preparingLabel={voicePreparingLabel ?? 'Connecting…'} />
+      ) : voiceStatus && voiceStatus !== 'idle' && voiceStatus !== 'error' && onHangUp ? (
         <VoiceBar status={voiceStatus} onHangUp={onHangUp} />
       ) : (
       <form
         onSubmit={(event) => {
           event.preventDefault()
-          if (!draft.trim() || isLoading) return
+          if (!draft.trim() || controlsDisabled) return
           onSend(draft.trim())
           setDraft('')
         }}
@@ -539,7 +664,7 @@ export function ChatWindow({
                 event.currentTarget.form?.requestSubmit()
               }
             }}
-            disabled={isLoading}
+            disabled={controlsDisabled}
             placeholder="Type your response..."
             autoComplete="off"
             className="max-h-40 flex-1 resize-none overflow-y-auto border-0 bg-transparent py-2 text-[15px] leading-relaxed text-[#062D27] placeholder:text-gray-300 focus:outline-none disabled:cursor-not-allowed"
@@ -548,8 +673,8 @@ export function ChatWindow({
             <button
               type="button"
               aria-label="Start voice call"
-              disabled={isLoading}
-              onClick={onStartVoice}
+              disabled={controlsDisabled}
+              onClick={() => onStartVoice?.()}
               className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-all duration-150 hover:bg-[#EFF6F5] hover:text-[#062D27] active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-5 w-5">
@@ -560,7 +685,7 @@ export function ChatWindow({
           <button
             type="submit"
             aria-label="Send message"
-            disabled={!draft.trim() || isLoading}
+            disabled={!draft.trim() || controlsDisabled}
             className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-400 transition-all duration-150 hover:bg-[#EFF6F5] hover:text-[#062D27] active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-gray-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} className="h-5 w-5">

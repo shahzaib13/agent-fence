@@ -14,6 +14,9 @@ export class FencingChatError extends Error {
   readonly sessionId: string | undefined
   readonly checklist: ChecklistData | null | undefined
   readonly checklistComplete: boolean | undefined
+  readonly checklistDisplay?: ChecklistDisplay | null
+  readonly checklistPending?: import('./voice').ChecklistPendingItem[]
+  readonly checklistAnswered?: import('./voice').ChecklistAnsweredItem[]
 
   constructor(opts: {
     message: string
@@ -23,6 +26,9 @@ export class FencingChatError extends Error {
     sessionId?: string
     checklist?: ChecklistData | null
     checklistComplete?: boolean
+    checklistDisplay?: ChecklistDisplay | null
+    checklistPending?: import('./voice').ChecklistPendingItem[]
+    checklistAnswered?: import('./voice').ChecklistAnsweredItem[]
   }) {
     super(opts.message)
     this.name = 'FencingChatError'
@@ -32,6 +38,9 @@ export class FencingChatError extends Error {
     this.sessionId = opts.sessionId
     this.checklist = opts.checklist
     this.checklistComplete = opts.checklistComplete
+    this.checklistDisplay = opts.checklistDisplay
+    this.checklistPending = opts.checklistPending
+    this.checklistAnswered = opts.checklistAnswered
   }
 }
 
@@ -43,6 +52,9 @@ interface FencingChatErrorBody {
   sessionId?: string
   checklist?: ChecklistData | null
   checklistComplete?: boolean
+  checklistDisplay?: ChecklistDisplay | null
+  checklistPending?: import('./voice').ChecklistPendingItem[]
+  checklistAnswered?: import('./voice').ChecklistAnsweredItem[]
 }
 
 function isErrorBody(data: unknown): data is FencingChatErrorBody {
@@ -64,6 +76,9 @@ function fencingChatErrorFromBody(data: FencingChatErrorBody, status?: number): 
     sessionId: data.sessionId,
     checklist: data.checklist,
     checklistComplete: data.checklistComplete,
+    checklistDisplay: data.checklistDisplay,
+    checklistPending: data.checklistPending,
+    checklistAnswered: data.checklistAnswered,
   })
 }
 
@@ -157,6 +172,8 @@ export interface FencingChatResponse {
   checklist?: ChecklistData | null
   /** Ready-made brief rows — prefer over formatting slugs yourself when present. */
   checklistDisplay?: ChecklistDisplay
+  checklistAnswered?: import('./voice').ChecklistAnsweredItem[]
+  checklistPending?: import('./voice').ChecklistPendingItem[]
   checklistComplete?: boolean
   trade?: string
   place?: SuburbPlace | null

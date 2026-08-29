@@ -1,28 +1,36 @@
-import type { ChatOption, ChecklistData, ChecklistDisplay } from '../services/fencingChat'
-import { ChecklistDisplayRows, ChecklistRows } from './ChecklistRows'
+import type { ChatOption, ChecklistDisplay } from '../services/fencingChat'
+import type { ChecklistAnsweredItem } from '../services/voice'
+import { ChecklistAnsweredRows, ChecklistDisplayRows } from './ChecklistRows'
 
 export function ConfirmationCard({
-  checklist,
+  checklistAnswered,
   checklistDisplay,
   options,
   answered,
   disabled,
   onSelectOption,
 }: {
-  checklist: ChecklistData
+  checklistAnswered?: ChecklistAnsweredItem[]
   checklistDisplay?: ChecklistDisplay | null
   options: ChatOption[]
   answered?: ChatOption
   disabled?: boolean
   onSelectOption: (option: ChatOption) => void
 }) {
+  const hasAnswered = !!checklistAnswered?.length
   const hasDisplay = !!checklistDisplay && Object.keys(checklistDisplay).length > 0
 
   return (
     <div className="max-w-2xl rounded-3xl border border-[#062D27]/15 bg-white p-6 shadow-[0_10px_40px_rgba(6,45,39,0.07)] animate-[card-rise_0.45s_ease-out_backwards]">
       <p className="mb-5 text-[11px] font-bold tracking-widest text-emerald-600 uppercase">Your project brief</p>
       <div className="mb-6 rounded-2xl bg-[#F1F4F3] p-5">
-        {hasDisplay ? <ChecklistDisplayRows display={checklistDisplay} /> : <ChecklistRows checklist={checklist} />}
+        {hasAnswered ? (
+          <ChecklistAnsweredRows answered={checklistAnswered} />
+        ) : hasDisplay ? (
+          <ChecklistDisplayRows display={checklistDisplay} />
+        ) : (
+          <p className="text-sm text-gray-500">Your brief will appear here as you answer.</p>
+        )}
       </div>
 
       {answered ? (

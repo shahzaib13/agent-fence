@@ -160,6 +160,8 @@ describe('Home', () => {
       results: [],
       avgRatePerMeter: null,
       checklist: { ...emptyChecklist, fenceType: 'Colorbond' },
+      checklistDisplay: { fenceType: { title: 'Fence type', value: 'Colorbond' } },
+      checklistAnswered: [{ key: 'fenceType', title: 'Fence type', value: 'Colorbond' }],
       checklistComplete: false,
     })
     // no Continue step any more — one click sends
@@ -172,8 +174,7 @@ describe('Home', () => {
     )
 
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Timber' })).not.toBeInTheDocument())
-    // the surviving chip names the field the answer filled, worked out by diffing the checklist
-    await waitFor(() => expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThan(1))
+    await waitFor(() => expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThanOrEqual(1))
   })
 
   it('follows the flip when a quote to beat actually turns up, because that is new information', async () => {
@@ -417,6 +418,11 @@ describe('Home', () => {
       results: [],
       avgRatePerMeter: null,
       checklist: fullChecklist,
+      checklistAnswered: [
+        { key: 'suburb', title: 'Suburb', value: 'Pakenham' },
+        { key: 'fenceType', title: 'Fence type', value: 'Pool Fencing' },
+        { key: 'lengthMeters', title: 'Length', value: '15m' },
+      ],
       checklistComplete: false,
     })
 
@@ -510,6 +516,11 @@ describe('Home', () => {
       results: [],
       avgRatePerMeter: null,
       checklist: baseChecklist,
+      checklistAnswered: [
+        { key: 'suburb', title: 'Suburb', value: 'Berwick' },
+        { key: 'fenceType', title: 'Fence type', value: 'Timber' },
+        { key: 'lengthMeters', title: 'Length', value: '20m' },
+      ],
       checklistComplete: false,
     })
 
@@ -539,6 +550,11 @@ describe('Home', () => {
       results: [],
       avgRatePerMeter: null,
       checklist: { ...baseChecklist, fenceType: 'Colorbond' },
+      checklistAnswered: [
+        { key: 'suburb', title: 'Suburb', value: 'Berwick' },
+        { key: 'fenceType', title: 'Fence type', value: 'Colorbond' },
+        { key: 'lengthMeters', title: 'Length', value: '20m' },
+      ],
       checklistComplete: false,
     })
     await user.type(screen.getByLabelText(/your reply/i), "it's Colorbond, not Timber")
@@ -616,6 +632,14 @@ describe('Home', () => {
         status: 415,
         sessionId: 'session-1',
         checklist: keptChecklist,
+        checklistDisplay: {
+          suburb: { title: 'Suburb', value: 'Berwick' },
+          fenceType: { title: 'Fence type', value: 'Colorbond' },
+        },
+        checklistAnswered: [
+          { key: 'suburb', title: 'Suburb', value: 'Berwick' },
+          { key: 'fenceType', title: 'Fence type', value: 'Colorbond' },
+        ],
         checklistComplete: false,
       }),
     )
@@ -640,6 +664,9 @@ describe('Home', () => {
       results: [],
       avgRatePerMeter: null,
       checklist: emptyChecklist,
+      checklistDisplay: { suburb: { title: 'Suburb', value: 'Berwick' } },
+      checklistAnswered: [{ key: 'suburb', title: 'Suburb', value: 'Berwick' }],
+      checklistPending: [{ key: 'fenceType', title: 'Fence type' }],
       checklistComplete: false,
     })
 
@@ -660,6 +687,9 @@ describe('Home', () => {
       results: [],
       avgRatePerMeter: null,
       checklist: { suburb: 'Berwick', fenceType: null },
+      checklistDisplay: { suburb: { title: 'Suburb', value: 'Berwick' } },
+      checklistAnswered: [{ key: 'suburb', title: 'Suburb', value: 'Berwick' }],
+      checklistPending: [{ key: 'fenceType', title: 'Fence type' }],
       checklistComplete: false,
     })
 
@@ -914,7 +944,7 @@ describe('Home', () => {
         expect.objectContaining({ place: pakenham }),
       ),
     )
-    expect(await screen.findByText('Suburb: Pakenham, VIC 3810')).toBeInTheDocument()
+    expect((await screen.findAllByText('Suburb: Pakenham, VIC 3810')).length).toBeGreaterThanOrEqual(1)
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 

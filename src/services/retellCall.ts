@@ -2,7 +2,8 @@ export interface RetellCallListeners {
   onStarted?: () => void
   onEnded?: () => void
   onAgentTalking?: (talking: boolean) => void
-  onMetadata?: (data: unknown) => void
+  onAgentStoppedTalking?: () => void
+  onUpdate?: (update: unknown) => void
   onError?: (error: unknown) => void
 }
 
@@ -24,13 +25,25 @@ export async function connectRetellCall(
   client.on('call_started', () => listeners.onStarted?.())
   client.on('call_ended', () => listeners.onEnded?.())
   client.on('agent_start_talking', () => listeners.onAgentTalking?.(true))
-  client.on('agent_stop_talking', () => listeners.onAgentTalking?.(false))
-  client.on('metadata', (data: unknown) => listeners.onMetadata?.(data))
+  client.on('agent_stop_talking', () => {
+    listeners.onAgentTalking?.(false)
+    listeners.onAgentStoppedTalking?.()
+  })
+  client.on('update', (update: unknown) => listeners.onUpdate?.(update))
   client.on('error', (error: unknown) => {
     listeners.onError?.(error)
     client.stopCall()
   })
 
-  await client.startCall({ accessToken })
+  try {
+    await client.startCall({ accessToken })
+  } catch (error) {
+    try {
+      client.stopCall()
+    } catch {
+      // Client may not have an active call — still must not leak the SDK instance.
+    }
+    throw error
+  }
   return { stop: () => client.stopCall() }
 }
