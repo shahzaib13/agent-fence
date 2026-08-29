@@ -175,6 +175,28 @@ describe('submitJob', () => {
     expect(locationData).toMatchObject({ suburb: 'Pakenham', stateFullName: 'Victoria' })
   })
 
+  it('defaults country fields when an incomplete place arrives from the API', async () => {
+    const incomplete = {
+      suburb: 'Pakenham',
+      state: 'VIC',
+      stateFullName: 'Victoria',
+      postcode: '3810',
+      displayLabel: 'Pakenham, VIC 3810',
+      formattedAddress: 'Pakenham VIC 3810',
+      latitude: -38.0776708,
+      longitude: 145.4818724,
+      placeId: 'ChIJxUv0xoYb1moRsOCMIXVWBAU',
+      placeTypes: ['locality'],
+      name: 'Pakenham',
+    } as SuburbPlace
+
+    await submitJob({ ...lead, place: incomplete })
+
+    expect(locationDataOf('jobs')).toMatchObject({ country: 'AU', countryName: 'Australia', suburb: 'Pakenham' })
+    expect(locationDataOf('jobs')).not.toHaveProperty('country', undefined)
+    expect(locationDataOf('users')).toMatchObject({ country: 'AU', countryName: 'Australia' })
+  })
+
   it('drops a copy into each picked business, accepted only where isAiAutoAcceptEnabled is on', async () => {
     await submitJob(lead)
 
