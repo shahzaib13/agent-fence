@@ -11,11 +11,14 @@ import {
   FENCING_CHAT_FALLBACK_MESSAGE,
   FencingChatError,
   sendFencingChatMessage,
+  type AnswerSource,
   type ChatOption,
   type ChecklistData,
   type ChecklistDisplay,
   type ComparisonSummary,
   type FencingChatResponse,
+  parseAnswerImages,
+  parseAnswerSources,
 } from '../services/fencingChat'
 import { isPlacesConfigured, newSessionToken, searchSuburbs, suburbSearchQuery, type SuburbPlace } from '../services/places'
 import { isQuoteResultReady, fetchQuoteResult, listenQuoteResult, type QuoteResultDoc } from '../services/quoteResults'
@@ -23,6 +26,10 @@ import { saveQuote, type QuoteSession } from '../services/quotes'
 import { isVoiceCallConfigured, freshVoiceTurns, lastVoiceTurnN, VOICE_RATE_LIMIT_MESSAGE, type ChecklistAnsweredItem, type ChecklistPendingItem, type VoiceCallContext, type VoiceSession } from '../services/voice'
 import { sortMessagesByTime, withCreatedAt } from '../utils/chatTimeline'
 import { mergeChecklistData, mergeChecklistDisplay } from '../utils/checklistMerge'
+import {
+  checklistAnsweredFromDisplay,
+  checklistDisplayFromAnswered,
+} from '../utils/checklistAnswered'
 import { diffFilledField } from '../utils/checklist'
 import { workerMatchesToComparison } from '../utils/comparison'
 import { generateId } from '../utils/id'
@@ -68,6 +75,9 @@ function toStoredMessages(thread: ChatMessage[]) {
       checklist: turnChecklist,
       expects,
       alternatives,
+      images,
+      sources,
+      pickedBudget,
       checklistDisplay: turnDisplay,
     }) => ({
       id,
@@ -82,6 +92,9 @@ function toStoredMessages(thread: ChatMessage[]) {
       checklist: turnChecklist,
       expects,
       alternatives,
+      images,
+      sources,
+      pickedBudget,
       checklistDisplay: turnDisplay ?? undefined,
     }),
   )
@@ -103,14 +116,24 @@ function voiceContextFromState(input: {
   checklistAnswered: ChecklistAnsweredItem[]
   messages: ChatMessage[]
 }): VoiceCallContext {
-  const lastAi = input.messages.findLast((message) => message.role === 'ai')
+  // Skip errors — a failed turn must not become the greeting seed for the next call.
+  const lastAi = input.messages.findLast((message) => message.role === 'ai' && !message.isError)
+  const answered =
+    input.checklistAnswered.length > 0
+      ? input.checklistAnswered
+      : checklistAnsweredFromDisplay(input.checklistDisplay)
+  const display =
+    input.checklistDisplay && Object.keys(input.checklistDisplay).length > 0
+      ? input.checklistDisplay
+      : checklistDisplayFromAnswered(answered)
+
   return {
     checklist: input.checklist,
     place: input.place,
     options: input.responseOptions.length ? input.responseOptions : null,
-    message: lastAi?.text ?? '',
-    checklistDisplay: input.checklistDisplay,
-    checklistAnswered: input.checklistAnswered,
+    message: lastAi?.text?.trim() || undefined,
+    checklistDisplay: display,
+    checklistAnswered: answered,
   }
 }
 
@@ -176,6 +199,20 @@ export function Home({
   const pendingAnswerId = useRef<string | null>(null)
   const messagesRef = useRef(messages)
   messagesRef.current = messages
+  const briefRef = useRef({
+    checklist,
+    place,
+    responseOptions,
+    checklistDisplay,
+    checklistAnswered,
+  })
+  briefRef.current = {
+    checklist,
+    place,
+    responseOptions,
+    checklistDisplay,
+    checklistAnswered,
+  }
   /** Only navigate to the results face when a result is produced this sitting, not on re-open. */
   const shouldAutoShowResult = useRef(false)
   /** Last voice turn number already merged into messages — keyed by `n`, not array index. Greeting is 0. */
@@ -268,7 +305,9 @@ export function Home({
   const stopVoiceRef = useRef<() => void>(() => {})
 
   const applyVoiceSessionState = useCallback((session: VoiceSession) => {
-    if (session.place !== undefined) setPlace(session.place ?? null)
+    // Same rule as the brief merges: a brand-new voice session document is empty. Null/empty
+    // fields are "not carried yet", not "wipe what the page already knows".
+    if (session.place) setPlace(session.place)
     if (session.checklist !== undefined) {
       setChecklist((previous) => mergeChecklistData(previous, session.checklist))
     }
@@ -276,8 +315,12 @@ export function Home({
       setChecklistDisplay((previous) => mergeChecklistDisplay(previous, session.checklistDisplay))
     }
     applyChecklistAnsweredState(session.checklistAnswered, setChecklistAnswered)
-    if (session.checklistPending !== undefined) setChecklistPending(session.checklistPending ?? [])
-    setResponseOptions(session.options ?? [])
+    if (session.checklistPending !== undefined && session.checklistPending.length > 0) {
+      setChecklistPending(session.checklistPending)
+    }
+    if (session.options !== undefined && session.options.length > 0) {
+      setResponseOptions(session.options)
+    }
     if (session.type) setLastResponseType(session.type)
   }, [])
 
@@ -357,6 +400,8 @@ export function Home({
         isConfirmation: response.type === 'confirmation',
         expects: expectsSuburb ? ('suburb' as const) : undefined,
         alternatives: response.alternatives,
+        images: parseAnswerImages(response.answer?.images),
+        sources: parseAnswerSources(response.answer?.sources),
       })
 
       commitMessages((previous) => {
@@ -388,17 +433,7 @@ export function Home({
         return
       }
 
-      if (session.place !== undefined) setPlace(session.place ?? null)
-      if (session.checklist !== undefined) {
-        setChecklist((previous) => mergeChecklistData(previous, session.checklist))
-      }
-      if (session.checklistDisplay !== undefined) {
-        setChecklistDisplay((previous) => mergeChecklistDisplay(previous, session.checklistDisplay))
-      }
-      applyChecklistAnsweredState(session.checklistAnswered, setChecklistAnswered)
-      if (session.checklistPending !== undefined) setChecklistPending(session.checklistPending ?? [])
-      setResponseOptions(session.options ?? [])
-      setLastResponseType(session.type)
+      applyVoiceSessionState(session)
 
       mergeVoiceSessionTurns(session)
       const nextMessages = messagesRef.current
@@ -463,6 +498,7 @@ export function Home({
     },
     [
       applyQuoteResultDoc,
+      applyVoiceSessionState,
       checklist,
       checklistDisplay,
       checklistAnswered,
@@ -484,6 +520,8 @@ export function Home({
 
   const { status: voiceStatus, start: startVoice, stop: stopVoice, isActive: isVoiceActive } = useVoiceCall({
     onSessionStarted: (id) => {
+      // New Retell session — reset the turn cursor only. Prior bubbles stay; mergeVoiceTurns
+      // appends this call's turns under the new session id.
       voiceSyncedTurnN.current = -1
       setVoiceSessionId(id)
       voiceSessionIdRef.current = id
@@ -638,6 +676,14 @@ export function Home({
     void sendMessage(String(option.value), undefined, !!target?.isConfirmation && String(option.value) === 'yes')
   }
 
+  // A published per-metre figure, not an MCQ option — the string must go through verbatim.
+  // Does not collapse the question's tiles: that question is still outstanding.
+  const handleSelectBudget = (messageId: string, source: AnswerSource) => {
+    if (isLoading || !source.budgetValue) return
+    commitMessages((previous) => previous.map((m) => (m.id === messageId ? { ...m, pickedBudget: source } : m)))
+    void sendMessage(source.budgetValue)
+  }
+
   // A suburb the customer picked from Google, rather than one they typed. `answeredField` is
   // set outright instead of being diffed out of the next checklist — this turn is the suburb
   // by definition, so the chip never has to wait a round trip to know what it filled in.
@@ -758,21 +804,20 @@ export function Home({
           }
           const response = await sendMessage(text, files)
           if (!response) return
-          context = {
-            checklist: response.checklist ?? checklist,
-            place: response.place ?? place,
-            options: response.options?.length ? response.options : null,
-            message: response.message,
-            checklistDisplay: response.checklistDisplay ?? checklistDisplay,
-            checklistAnswered: response.checklistAnswered ?? checklistAnswered,
-          }
+          const brief = briefRef.current
+          context = voiceContextFromState({
+            checklist: response.checklist ?? brief.checklist,
+            place: response.place ?? brief.place,
+            responseOptions: response.options?.length ? response.options : brief.responseOptions,
+            checklistDisplay: response.checklistDisplay ?? brief.checklistDisplay,
+            checklistAnswered: response.checklistAnswered?.length
+              ? response.checklistAnswered
+              : brief.checklistAnswered,
+            messages: messagesRef.current,
+          })
         } else {
           context = voiceContextFromState({
-            checklist,
-            place,
-            responseOptions,
-            checklistDisplay,
-            checklistAnswered,
+            ...briefRef.current,
             messages: messagesRef.current,
           })
         }
@@ -881,6 +926,7 @@ export function Home({
             interactionDisabled={isVoiceActive}
             onSend={handleSend}
             onSelectOption={handleSelectOption}
+            onSelectBudget={handleSelectBudget}
             onSelectPlace={handleSelectPlace}
             onRetry={handleRetry}
             onStartVoice={showVoice && !voiceBusy ? handleStartVoice : undefined}

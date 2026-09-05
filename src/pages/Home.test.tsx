@@ -177,6 +177,104 @@ describe('Home', () => {
     await waitFor(() => expect(screen.getAllByText('Fence type: Colorbond').length).toBeGreaterThanOrEqual(1))
   })
 
+  it('draws example photos under the bubble and still shows the question tiles', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: "Here you go — I've put some photos on your screen so you can see how it looks.\n\nWhat type of fence are you after?",
+      options: [
+        { label: 'Timber', value: 'Timber' },
+        { label: 'Colorbond', value: 'Colorbond' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      answer: {
+        kind: 'looks',
+        text: "Here you go — I've put some photos on your screen so you can see how it looks.",
+        sources: [],
+        images: [
+          {
+            url: 'https://bunnings.com.au/fence.jpg',
+            thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=colorbond',
+            sourceName: 'Bunnings',
+            width: 3900,
+            height: 2194,
+          },
+        ],
+      },
+    })
+
+    await startChat(user)
+
+    expect(await screen.findByRole('button', { name: /view photo from bunnings/i })).toBeInTheDocument()
+    expect(document.querySelector('img[src="https://encrypted-tbn0.gstatic.com/images?q=colorbond"]')).toBeInTheDocument()
+    expect(document.querySelector('img[src="https://bunnings.com.au/fence.jpg"]')).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Colorbond' })).toBeInTheDocument()
+    expect(mockedSend).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends a budget chip as the exact budgetValue string and leaves the question tiles up', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: 'hipages lists $85 to $100 a metre installed. What type of fence are you after?',
+      options: [
+        { label: 'Timber', value: 'Timber' },
+        { label: 'Colorbond', value: 'Colorbond' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: emptyChecklist,
+      answer: {
+        kind: 'rates',
+        text: 'hipages lists $85 to $100 a metre installed',
+        sources: [
+          {
+            name: 'hipages',
+            figure: '$85 to $100 a metre installed',
+            perMetreMin: 85,
+            perMetreMax: 100,
+            budgetValue: 'budget:85-100:hipages',
+            url: null,
+          },
+          { name: 'advice', figure: 'it depends', budgetValue: null },
+        ],
+      },
+    })
+
+    await startChat(user)
+
+    const chip = await screen.findByRole('button', { name: /hipages, \$85 to \$100 a metre installed/i })
+    expect(screen.getByText('Which of these is closest to your budget?')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /advice/i })).not.toBeInTheDocument()
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      message: "Noted — I'll show you how the quotes compare to $85 to $100 a metre. What type of fence are you after?",
+      options: [
+        { label: 'Timber', value: 'Timber' },
+        { label: 'Colorbond', value: 'Colorbond' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: emptyChecklist,
+    })
+
+    await user.click(chip)
+
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'budget:85-100:hipages',
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ knownChecklist: emptyChecklist, place: null }),
+    )
+    expect(await screen.findByRole('button', { name: 'Colorbond' })).toBeInTheDocument()
+    expect(screen.getByText('Closest to your budget')).toBeInTheDocument()
+  })
+
   it('follows the flip when a quote to beat actually turns up, because that is new information', async () => {
     const user = userEvent.setup()
     mockedSend.mockResolvedValueOnce({

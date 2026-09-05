@@ -4,6 +4,8 @@ import type { VoiceStatus } from '../hooks/useVoiceCall'
 import {
   OTHER_OPTION_VALUE,
   type AlternativeOffer,
+  type AnswerImage,
+  type AnswerSource,
   type ChatOption,
   type ChecklistData,
   type ChecklistDisplay,
@@ -14,6 +16,8 @@ import type { ChecklistAnsweredItem } from '../services/voice'
 import { checklistFieldLabel } from '../utils/checklist'
 import { useVoiceLiveLines } from '../utils/voiceLiveStore'
 import { AlternativeOffers } from './AlternativeOffers'
+import { AnswerPhotos } from './AnswerPhotos'
+import { BudgetChips } from './BudgetChips'
 import { ConfirmationCard } from './ConfirmationCard'
 import { SuburbPicker } from './SuburbPicker'
 import { VoiceBar } from './VoiceBar'
@@ -37,6 +41,12 @@ export interface ChatMessage {
   // the picker opens pre-loaded with what that text matched, so confirming is one click.
   expects?: 'suburb'
   alternatives?: AlternativeOffer[]
+  /** Example photos for this turn — content, not choices. */
+  images?: AnswerImage[]
+  /** Published rate figures; chips send `budgetValue`, they are not MCQ options. */
+  sources?: AnswerSource[]
+  /** Budget figure the customer tapped — keeps the chip collapsed after the next turn lands. */
+  pickedBudget?: AnswerSource
   checklistDisplay?: ChecklistDisplay | null
   suggestions?: SuburbSuggestion[]
   query?: string
@@ -275,6 +285,7 @@ function AiTurn({
   isLast,
   otherInputMode,
   onSelect,
+  onSelectBudget,
   onSelectPlace,
   onRetry,
   onGrow,
@@ -289,6 +300,7 @@ function AiTurn({
   isLast: boolean
   otherInputMode: 'numeric' | 'text'
   onSelect: (option: ChatOption) => void
+  onSelectBudget?: (source: AnswerSource) => void
   onSelectPlace: (place: SuburbPlace) => void
   onRetry: () => void
   onGrow: () => void
@@ -322,9 +334,19 @@ function AiTurn({
     (!!confirmationChecklist || !!confirmationAnswered?.length || !!message.checklistDisplay)
   const hasOptions = !!activeOptions && activeOptions.length > 0
   const hasAlternatives = !!message.alternatives && message.alternatives.length > 0
+  const hasPhotos = !!message.images && message.images.length > 0
+  const showBudget =
+    revealDone &&
+    !message.isVoice &&
+    (!!message.pickedBudget || (isLast && (message.sources?.some((source) => source.budgetValue) ?? false)))
   const optionMessage: ChatMessage = { ...message, options: activeOptions, isConfirmation, checklist: confirmationChecklist }
   const showOptionRow =
-    revealDone && !message.isConfirmation && (hasOptions || !!message.answered) && !hasAlternatives && !showConfirmationCard
+    revealDone &&
+    !message.isConfirmation &&
+    message.expects !== 'suburb' &&
+    (hasOptions || !!message.answered) &&
+    !hasAlternatives &&
+    !showConfirmationCard
 
   // Keep the thread pinned to the bottom as the reply reveals itself and its card drops in,
   // so the newest content stays in view without the user chasing it.
@@ -365,7 +387,7 @@ function AiTurn({
       </div>
 
       {/* Everything the turn hands you to act on lines up with the bubble, past the avatar. */}
-      <div className="pt-1 pl-12 empty:hidden">
+      <div className="flex flex-col gap-3 pt-1 pl-12 empty:hidden">
         {message.isError && message.retryable !== false && (
           <button
             type="button"
@@ -378,6 +400,15 @@ function AiTurn({
 
         {/* Cards wait for the sentence above them to finish landing — the reply reads first,
             then the thing you act on arrives. */}
+        {revealDone && hasPhotos && <AnswerPhotos images={message.images ?? []} />}
+        {showBudget && (
+          <BudgetChips
+            sources={message.sources ?? []}
+            picked={message.pickedBudget}
+            disabled={disabled}
+            onSelect={(source) => onSelectBudget?.(source)}
+          />
+        )}
         {revealDone && showConfirmationCard && (
           <ConfirmationCard
             checklistAnswered={confirmationAnswered}
@@ -533,6 +564,7 @@ export function ChatWindow({
   interactionDisabled,
   onSend,
   onSelectOption,
+  onSelectBudget,
   onSelectPlace,
   onRetry,
   onStartVoice,
@@ -552,6 +584,7 @@ export function ChatWindow({
   interactionDisabled?: boolean
   onSend: (text: string) => void
   onSelectOption: (messageId: string, option: ChatOption) => void
+  onSelectBudget?: (messageId: string, source: AnswerSource) => void
   onSelectPlace: (messageId: string, place: SuburbPlace) => void
   onRetry: () => void
   onStartVoice?: () => void
@@ -617,6 +650,7 @@ export function ChatWindow({
                 isLast={message.id === lastAiId}
                 otherInputMode={otherInputMode}
                 onSelect={(option) => onSelectOption(message.id, option)}
+                onSelectBudget={onSelectBudget ? (source) => onSelectBudget(message.id, source) : undefined}
                 onSelectPlace={(place) => onSelectPlace(message.id, place)}
                 onRetry={onRetry}
                 onGrow={stickToBottom}
