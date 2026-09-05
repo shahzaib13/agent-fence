@@ -89,6 +89,7 @@ export function mergeVoiceTurns(
         text: assistantText,
         createdAt: atMs + 1,
         isVoice: true,
+        ...(turn.images ? { images: turn.images } : {}),
       })
     }
   }

@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { api } from './api'
-import type { ChatOption, ChecklistData, ChecklistDisplay, FencingChatResponse } from './fencingChat'
-import { quoteMyApiBase, serialiseKnownChecklist } from './fencingChat'
+import type { AnswerImage, ChatOption, ChecklistData, ChecklistDisplay, FencingChatResponse } from './fencingChat'
+import { parseAnswerImages, quoteMyApiBase, serialiseKnownChecklist } from './fencingChat'
 import type { SuburbPlace } from './places'
 
 export interface VoiceCallCredentials {
@@ -25,6 +25,8 @@ export interface VoiceTurn {
   chose?: string
   /** Options this turn offered — attach to this turn's AI bubble; `chose` on turn n+1 highlights one of these. */
   offered?: ChatOption[]
+  /** Example photos for this turn — same strip as typed chat; not MCQ pills. */
+  images?: AnswerImage[]
 }
 
 export class VoiceCallError extends Error {
@@ -131,16 +133,29 @@ function accessTokenFrom(data: Record<string, unknown>): string | undefined {
   return undefined
 }
 
+function jsonField(value: unknown): string {
+  return value === undefined || value === null ? 'null' : JSON.stringify(value)
+}
+
 function voiceCreateCallBody(context?: VoiceCallContext): Record<string, string> | undefined {
   if (!context) return undefined
 
+  // Every field is a JSON text value the backend parses once. `message` is already a string —
+  // JSON.stringify it like the objects, but never stringify an empty string: that becomes the
+  // two-character payload `""`, which is not "no message".
+  const message = context.message?.trim() ? context.message.trim() : null
   const checklist = serialiseKnownChecklist(context.checklist)
+  const display =
+    context.checklistDisplay && Object.keys(context.checklistDisplay).length > 0
+      ? context.checklistDisplay
+      : null
+
   return {
-    checklist: checklist ?? 'null',
+    checklist: checklist || 'null',
     place: context.place ? JSON.stringify(context.place) : 'null',
     options: context.options?.length ? JSON.stringify(context.options) : 'null',
-    message: JSON.stringify(context.message ?? ''),
-    checklistDisplay: context.checklistDisplay ? JSON.stringify(context.checklistDisplay) : 'null',
+    message: jsonField(message),
+    checklistDisplay: display ? JSON.stringify(display) : 'null',
     checklistAnswered: JSON.stringify(context.checklistAnswered ?? []),
   }
 }
@@ -174,6 +189,7 @@ function parseVoiceTurn(raw: unknown): VoiceTurn | null {
     spoke: typeof turn.spoke === 'string' ? turn.spoke : undefined,
     chose: typeof turn.chose === 'string' ? turn.chose : undefined,
     offered: parseOffered(turn.offered),
+    images: parseAnswerImages(turn.images),
   }
 }
 

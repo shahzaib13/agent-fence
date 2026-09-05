@@ -9,3 +9,11 @@ export function checklistAnsweredFromDisplay(display: ChecklistDisplay | null | 
     .filter(([key, row]) => !BRIEF_HIDDEN_KEYS.has(key) && row.value.trim().length > 0)
     .map(([key, row]) => ({ key, title: row.title, value: row.value }))
 }
+
+/** Inverse — create-call greets from `checklistDisplay`; rebuild it when only answered rows exist. */
+export function checklistDisplayFromAnswered(
+  answered: ChecklistAnsweredItem[] | null | undefined,
+): ChecklistDisplay | null {
+  if (!answered?.length) return null
+  return Object.fromEntries(answered.map((item) => [item.key, { title: item.title, value: item.value }]))
+}

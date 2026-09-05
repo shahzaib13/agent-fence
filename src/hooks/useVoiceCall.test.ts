@@ -86,7 +86,9 @@ describe('useVoiceCall', () => {
     })
     expect(onSessionStarted).toHaveBeenCalledWith('server-s1')
     expect(result.current.status).toBe('connecting')
-    expect(getVoiceLiveLines()).toEqual([{ role: 'assistant', text: 'Hi, I can help with your fence.' }])
+    expect(getVoiceLiveLines()).toEqual([
+      expect.objectContaining({ role: 'assistant', text: 'Hi, I can help with your fence.' }),
+    ])
 
     act(() => {
       listeners.onStarted?.()
@@ -99,7 +101,10 @@ describe('useVoiceCall', () => {
       })
     })
     expect(getVoiceLiveLines()).toEqual([
-      { role: 'assistant', text: 'Hi, I can help with your fence. Which suburb?' },
+      expect.objectContaining({
+        role: 'assistant',
+        text: 'Hi, I can help with your fence. Which suburb?',
+      }),
     ])
 
     act(() => {
@@ -111,8 +116,11 @@ describe('useVoiceCall', () => {
       })
     })
     expect(getVoiceLiveLines()).toEqual([
-      { role: 'assistant', text: 'Hi, I can help with your fence. Which suburb?' },
-      { role: 'user', text: 'Berwick' },
+      expect.objectContaining({
+        role: 'assistant',
+        text: 'Hi, I can help with your fence. Which suburb?',
+      }),
+      expect.objectContaining({ role: 'user', text: 'Berwick' }),
     ])
 
     act(() => {
@@ -125,7 +133,7 @@ describe('useVoiceCall', () => {
     expect(getVoiceLiveLines()).toEqual([])
   })
 
-  it('drops the live pair when the session turn count grows', async () => {
+  it('drops live lines received before the sync request, keeps one line per role', async () => {
     vi.useFakeTimers()
     let listeners: {
       onUpdate?: (update: unknown) => void
@@ -173,10 +181,10 @@ describe('useVoiceCall', () => {
         ],
       })
     })
+    // One slot per role — the later agent line revises the greeting slot, not a third bubble.
     expect(getVoiceLiveLines()).toEqual([
-      { role: 'assistant', text: 'Hi, I can help with your fence.' },
-      { role: 'user', text: 'Berwick' },
-      { role: 'assistant', text: 'How long is the fence?' },
+      expect.objectContaining({ role: 'user', text: 'Berwick' }),
+      expect.objectContaining({ role: 'assistant', text: 'How long is the fence?' }),
     ])
 
     act(() => {
@@ -193,6 +201,187 @@ describe('useVoiceCall', () => {
     act(() => {
       listeners.onUpdate?.({
         transcript: [{ role: 'agent', content: 'How long is the fence?' }],
+      })
+    })
+    expect(getVoiceLiveLines()).toEqual([])
+
+    vi.useRealTimers()
+  })
+
+  it('keeps live lines that arrived while the sync request was in flight', async () => {
+    vi.useFakeTimers()
+    let listeners: {
+      onUpdate?: (update: unknown) => void
+      onAgentStoppedTalking?: () => void
+    } = {}
+    let resolveFetch: ((value: unknown) => void) | undefined
+    createVoiceCall.mockResolvedValue({ sessionId: 'server-s1', accessToken: 'tok', configured: true })
+    fetchVoiceSession.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve
+        }),
+    )
+    connectRetellCall.mockImplementation(async (_token: string, next: typeof listeners) => {
+      listeners = next
+      return { stop: vi.fn() }
+    })
+
+    const { result } = renderHook(() =>
+      useVoiceCall({
+        onSessionStarted: vi.fn(),
+        onCallEnding: vi.fn(),
+        onHandover: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.start()
+    })
+
+    act(() => {
+      listeners.onUpdate?.({ transcript: [{ role: 'agent', content: 'How long is the fence?' }] })
+      listeners.onAgentStoppedTalking?.()
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+
+    // Sync issued; caller starts the next answer while the request is still open.
+    act(() => {
+      listeners.onUpdate?.({
+        transcript: [
+          { role: 'agent', content: 'How long is the fence?' },
+          { role: 'user', content: 'Twenty metres' },
+        ],
+      })
+    })
+    expect(getVoiceLiveLines()).toEqual([
+      expect.objectContaining({ role: 'assistant', text: 'How long is the fence?' }),
+      expect.objectContaining({ role: 'user', text: 'Twenty metres' }),
+    ])
+
+    await act(async () => {
+      resolveFetch?.({
+        found: true,
+        turns: [{ n: 1, said: 'Berwick', spoke: 'How long is the fence?' }],
+      })
+      await Promise.resolve()
+    })
+
+    expect(getVoiceLiveLines()).toEqual([
+      expect.objectContaining({ role: 'user', text: 'Twenty metres' }),
+    ])
+
+    vi.useRealTimers()
+  })
+
+  it('does not clear the overlay when a sync returns no new turns (filler stop)', async () => {
+    vi.useFakeTimers()
+    let listeners: {
+      onUpdate?: (update: unknown) => void
+      onAgentStoppedTalking?: () => void
+    } = {}
+    createVoiceCall.mockResolvedValue({ sessionId: 'server-s1', accessToken: 'tok', configured: true })
+    // First sync: greeting only. Second: still no new turn (tool still running).
+    fetchVoiceSession
+      .mockResolvedValueOnce({
+        found: true,
+        turns: [{ n: 0, spoke: 'Hi, I can help with your fence.' }],
+      })
+      .mockResolvedValueOnce({
+        found: true,
+        turns: [{ n: 0, spoke: 'Hi, I can help with your fence.' }],
+      })
+      .mockResolvedValueOnce({
+        found: true,
+        turns: [
+          { n: 0, spoke: 'Hi, I can help with your fence.' },
+          {
+            n: 1,
+            said: 'is colorbond good on a slope',
+            spoke: 'Colorbond holds up well on a slope if the posts are set right.',
+          },
+        ],
+      })
+    connectRetellCall.mockImplementation(async (_token: string, next: typeof listeners) => {
+      listeners = next
+      return { stop: vi.fn() }
+    })
+
+    const { result } = renderHook(() =>
+      useVoiceCall({
+        onSessionStarted: vi.fn(),
+        onCallEnding: vi.fn(),
+        onHandover: vi.fn(),
+      }),
+    )
+
+    await act(async () => {
+      await result.current.start()
+    })
+
+    // Greeting lands and commits.
+    act(() => {
+      listeners.onUpdate?.({ transcript: [{ role: 'agent', content: 'Hi, I can help with your fence.' }] })
+      listeners.onAgentStoppedTalking?.()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    expect(getVoiceLiveLines()).toEqual([])
+
+    // Caller asks; filler plays while the tool runs.
+    act(() => {
+      listeners.onUpdate?.({
+        transcript: [
+          { role: 'agent', content: 'Hi, I can help with your fence.' },
+          { role: 'user', content: 'is colorbond good on a slope' },
+        ],
+      })
+      listeners.onUpdate?.({
+        transcript: [
+          { role: 'user', content: 'is colorbond good on a slope' },
+          { role: 'agent', content: 'Let me check that for you.' },
+        ],
+      })
+      listeners.onAgentStoppedTalking?.()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+
+    // No new turn yet — overlay must stay (filler is better than a blank chat).
+    expect(getVoiceLiveLines()).toEqual([
+      expect.objectContaining({ role: 'user', text: 'is colorbond good on a slope' }),
+      expect.objectContaining({ role: 'assistant', text: 'Let me check that for you.' }),
+    ])
+
+    // Real answer revises the same assistant slot.
+    act(() => {
+      listeners.onUpdate?.({
+        transcript: [
+          { role: 'user', content: 'is colorbond good on a slope' },
+          { role: 'agent', content: 'Colorbond holds up well on a slope if the posts are set right.' },
+        ],
+      })
+      listeners.onAgentStoppedTalking?.()
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+
+    // Turn committed — overlay clears; empty-buffer guard blocks the stale agent repeat.
+    expect(getVoiceLiveLines()).toEqual([])
+    act(() => {
+      listeners.onUpdate?.({
+        transcript: [
+          {
+            role: 'agent',
+            content: 'Colorbond holds up well on a slope if the posts are set right.',
+          },
+        ],
       })
     })
     expect(getVoiceLiveLines()).toEqual([])

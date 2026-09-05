@@ -266,8 +266,125 @@ describe('ChatWindow', () => {
   })
 
   it('renders live agent text from the overlay store, not the message list', () => {
-    setVoiceLiveLines([{ role: 'assistant', text: 'How long is the fence going to be?' }])
+    setVoiceLiveLines([
+      { role: 'assistant', text: 'How long is the fence going to be?', receivedAt: 1 },
+    ])
     renderWindow([])
     expect(screen.getByLabelText('Live call transcript')).toHaveTextContent('How long is the fence going to be?')
+  })
+
+  it('shows one suburb chip after a place is picked, not the MCQ option row too', () => {
+    renderWindow([
+      {
+        id: 'ai-suburb',
+        role: 'ai',
+        text: 'Which suburb is the fence going in?',
+        expects: 'suburb',
+        answered: { label: 'Pakenham, VIC 3810', value: 'Pakenham, VIC 3810' },
+        answeredField: 'suburb',
+      },
+      { id: 'ai-next', role: 'ai', text: 'What type of fence are you after?' },
+    ])
+
+    expect(screen.getAllByText('Suburb: Pakenham, VIC 3810')).toHaveLength(1)
+  })
+
+  it('draws example photos under the bubble and keeps the option tiles', async () => {
+    const onSelectOption = vi.fn()
+    renderWindow(
+      [
+        {
+          id: 'ai-looks',
+          role: 'ai',
+          text: 'Here you go. What type of fence are you after?',
+          options: [
+            { label: 'Timber', value: 'Timber' },
+            { label: 'Colorbond', value: 'Colorbond' },
+          ],
+          images: [
+            {
+              url: 'https://bunnings.com.au/fence.jpg',
+              thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=colorbond',
+              sourceName: 'Bunnings',
+              width: 3900,
+              height: 2194,
+            },
+          ],
+        },
+      ],
+      false,
+      { onSelectOption },
+    )
+
+    expect(await screen.findByText('Bunnings')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /view photo from bunnings/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Colorbond' })).toBeInTheDocument()
+    expect(onSelectOption).not.toHaveBeenCalled()
+  })
+
+  it('sends a budget chip through onSelectBudget, not onSelectOption', async () => {
+    const onSelectOption = vi.fn()
+    const onSelectBudget = vi.fn()
+    const user = userEvent.setup()
+    const hipages = {
+      name: 'hipages',
+      figure: '$85 to $100 a metre installed',
+      perMetreMin: 85,
+      perMetreMax: 100,
+      budgetValue: 'budget:85-100:hipages',
+      url: null,
+    }
+    render(
+      <ChatWindow
+        messages={[
+          {
+            id: 'ai-rates',
+            role: 'ai',
+            text: 'What type of fence are you after?',
+            options: [
+              { label: 'Timber', value: 'Timber' },
+              { label: 'Colorbond', value: 'Colorbond' },
+            ],
+            sources: [hipages, { name: 'Airtasker', figure: 'no figure', budgetValue: null }],
+          },
+        ]}
+        isLoading={false}
+        onSend={() => {}}
+        onSelectOption={onSelectOption}
+        onSelectBudget={onSelectBudget}
+        onSelectPlace={() => {}}
+        onRetry={() => {}}
+      />,
+    )
+
+    await user.click(await screen.findByRole('button', { name: /hipages, \$85 to \$100 a metre installed/i }))
+
+    expect(onSelectBudget).toHaveBeenCalledWith('ai-rates', hipages)
+    expect(onSelectOption).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Colorbond' })).toBeInTheDocument()
+  })
+
+  it('shows photos on a voice bubble and still hides MCQ pills', async () => {
+    renderWindow([
+      {
+        id: 'v-vs-1-3-a',
+        role: 'ai',
+        text: "Here you go — I've put some photos on your screen.",
+        isVoice: true,
+        options: [{ label: 'Colorbond', value: 'colorbond' }],
+        images: [
+          {
+            url: 'https://bunnings.com.au/fence.jpg',
+            thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=colorbond',
+            sourceName: 'Bunnings',
+            width: 3900,
+            height: 2194,
+          },
+        ],
+      },
+    ])
+
+    expect(await screen.findByText('Bunnings')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Colorbond' })).not.toBeInTheDocument()
   })
 })

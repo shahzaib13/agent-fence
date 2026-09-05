@@ -70,6 +70,34 @@ describe('createVoiceCall', () => {
     )
   })
 
+  it('sends null for an empty message instead of the two-character JSON string ""', async () => {
+    mockedPost.mockResolvedValueOnce({
+      data: { sessionId: 'server-s3', accessToken: 'tok', configured: true },
+    })
+
+    await createVoiceCall({
+      checklist: null,
+      place: null,
+      options: null,
+      message: '',
+      checklistDisplay: null,
+      checklistAnswered: [],
+    })
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      'https://api.example.test/api/v1/voice/create-call',
+      {
+        checklist: 'null',
+        place: 'null',
+        options: 'null',
+        message: 'null',
+        checklistDisplay: 'null',
+        checklistAnswered: '[]',
+      },
+      expect.objectContaining({ timeout: 30_000 }),
+    )
+  })
+
   it('returns greeting from create-call so the opener can land before /voice/session', async () => {
     mockedPost.mockResolvedValueOnce({
       data: {
@@ -152,6 +180,50 @@ describe('fetchVoiceSession', () => {
           ],
         },
         { n: 5, chose: 'Colorbond', wrote: 'How long?' },
+      ],
+    })
+  })
+
+  it('keeps photos on a turn instead of dropping them', async () => {
+    mockedGet.mockResolvedValueOnce({
+      data: {
+        found: true,
+        turns: [
+          {
+            n: 3,
+            said: 'show me colorbond',
+            spoke: "Here you go — I've put some photos on your screen.",
+            images: [
+              {
+                url: 'https://bunnings.com.au/fence.jpg',
+                thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=colorbond',
+                sourceName: 'Bunnings',
+                width: 3900,
+                height: 2194,
+              },
+            ],
+          },
+        ],
+      },
+    })
+
+    await expect(fetchVoiceSession('server-s1')).resolves.toMatchObject({
+      found: true,
+      turns: [
+        {
+          n: 3,
+          said: 'show me colorbond',
+          spoke: "Here you go — I've put some photos on your screen.",
+          images: [
+            {
+              url: 'https://bunnings.com.au/fence.jpg',
+              thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=colorbond',
+              sourceName: 'Bunnings',
+              width: 3900,
+              height: 2194,
+            },
+          ],
+        },
       ],
     })
   })

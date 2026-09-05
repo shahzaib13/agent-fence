@@ -39,6 +39,29 @@ describe('messagesFromVoiceTurns', () => {
     expect(ai?.options).toBeUndefined()
   })
 
+  it('carries photos onto the voice AI bubble', () => {
+    const images = [
+      {
+        url: 'https://bunnings.com.au/fence.jpg',
+        thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=colorbond',
+        sourceName: 'Bunnings',
+        width: 3900,
+        height: 2194,
+      },
+    ]
+    const messages = mergeVoiceTurns(
+      [],
+      [{ n: 3, said: 'show me colorbond', spoke: "Here you go — I've put some photos on your screen.", images }],
+      'vs-1',
+    )
+
+    expect(messages.find((message) => message.id === 'v-vs-1-3-a')).toMatchObject({
+      text: "Here you go — I've put some photos on your screen.",
+      isVoice: true,
+      images,
+    })
+  })
+
   it('keeps turns from separate calls when sessionIds differ', () => {
     const first = mergeVoiceTurns([], [{ n: 1, said: 'Hi', spoke: 'Hello' }], 'call-a')
     const both = mergeVoiceTurns(first, [{ n: 1, said: 'Again', spoke: 'Welcome back' }], 'call-b')

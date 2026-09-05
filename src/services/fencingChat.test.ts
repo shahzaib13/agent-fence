@@ -4,7 +4,10 @@ import { api } from './api'
 import {
   FENCING_CHAT_FALLBACK_MESSAGE,
   FencingChatError,
+  budgetSources,
   fencingChatFromMetadata,
+  parseAnswerImages,
+  parseAnswerSources,
   resultIdFromMetadata,
   serialiseKnownChecklist,
   sendFencingChatMessage,
@@ -231,5 +234,88 @@ describe('voice metadata helpers', () => {
     expect(resultIdFromMetadata({ resultId: 'r1' })).toBe('r1')
     expect(resultIdFromMetadata({ ...ok, resultId: 'r2' })).toBe('r2')
     expect(resultIdFromMetadata({ metadata: { resultId: 'r3' } })).toBe('r3')
+  })
+})
+
+describe('parseAnswerImages', () => {
+  it('keeps a complete photo and drops rows without a thumbnail or source', () => {
+    expect(
+      parseAnswerImages([
+        {
+          url: 'https://bunnings.com.au/fence.jpg',
+          thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=1',
+          sourceName: 'Bunnings',
+          width: 3900,
+          height: 2194,
+        },
+        { url: 'https://example.com/x.jpg', sourceName: 'Missing thumb', width: 1, height: 1 },
+        { thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=2', sourceName: '  ' },
+      ]),
+    ).toEqual([
+      {
+        url: 'https://bunnings.com.au/fence.jpg',
+        thumbUrl: 'https://encrypted-tbn0.gstatic.com/images?q=1',
+        sourceName: 'Bunnings',
+        width: 3900,
+        height: 2194,
+      },
+    ])
+  })
+
+  it('caps the strip at six', () => {
+    const rows = Array.from({ length: 8 }, (_, index) => ({
+      url: `https://example.com/${index}.jpg`,
+      thumbUrl: `https://encrypted-tbn0.gstatic.com/images?q=${index}`,
+      sourceName: `Source ${index}`,
+      width: 4,
+      height: 3,
+    }))
+    expect(parseAnswerImages(rows)).toHaveLength(6)
+  })
+})
+
+describe('parseAnswerSources', () => {
+  it('keeps a rates row and treats a missing budgetValue as null', () => {
+    expect(
+      parseAnswerSources([
+        {
+          name: 'hipages',
+          figure: '$85 to $100 a metre installed',
+          perMetreMin: 85,
+          perMetreMax: 100,
+          budgetValue: 'budget:85-100:hipages',
+          url: null,
+        },
+        { name: 'Airtasker', figure: 'no figure given', budgetValue: null },
+      ]),
+    ).toEqual([
+      {
+        name: 'hipages',
+        figure: '$85 to $100 a metre installed',
+        perMetreMin: 85,
+        perMetreMax: 100,
+        budgetValue: 'budget:85-100:hipages',
+        url: null,
+      },
+      {
+        name: 'Airtasker',
+        figure: 'no figure given',
+        perMetreMin: undefined,
+        perMetreMax: undefined,
+        budgetValue: null,
+        url: undefined,
+      },
+    ])
+  })
+})
+
+describe('budgetSources', () => {
+  it('skips rows whose budgetValue is null', () => {
+    expect(
+      budgetSources([
+        { name: 'hipages', figure: '$85 to $100 a metre installed', budgetValue: 'budget:85-100:hipages' },
+        { name: 'advice', figure: 'it depends', budgetValue: null },
+      ]).map((source) => source.budgetValue),
+    ).toEqual(['budget:85-100:hipages'])
   })
 })

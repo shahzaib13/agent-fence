@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { connectRetellCall } from '../services/retellCall'
 import {
-  committedVoiceTurnCount,
   createVoiceCall,
   fetchVoiceSession,
+  freshVoiceTurns,
+  lastVoiceTurnN,
   VoiceCallError,
   type VoiceCallContext,
   type VoiceSession,
@@ -11,8 +12,7 @@ import {
 import { getVoiceLiveLines, setVoiceLiveLines } from '../utils/voiceLiveStore'
 import {
   applyLiveTranscriptUpdate,
-  dropCommittedLivePair,
-  dropLeadingAssistant,
+  dropLinesBefore,
   lastLiveTranscriptEntry,
   seedLiveGreeting,
 } from '../utils/voiceTranscript'
@@ -35,8 +35,9 @@ export function useVoiceCall(opts: {
   const inFlight = useRef(false)
   const handleRef = useRef<{ stop: () => void } | null>(null)
   const sessionIdRef = useRef<string | undefined>(undefined)
-  const committedTurnCountRef = useRef(0)
   const greetingCommittedRef = useRef(false)
+  /** Last turn `n` the overlay has already cleared for — same freshness gate as message merge. */
+  const overlayClearedTurnNRef = useRef(-1)
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const optsRef = useRef(opts)
   optsRef.current = opts
@@ -50,8 +51,8 @@ export function useVoiceCall(opts: {
 
   const resetLiveOverlay = useCallback(() => {
     setVoiceLiveLines([])
-    committedTurnCountRef.current = 0
     greetingCommittedRef.current = false
+    overlayClearedTurnNRef.current = -1
   }, [])
 
   const stop = useCallback(() => {
@@ -65,20 +66,28 @@ export function useVoiceCall(opts: {
 
   useEffect(() => () => stop(), [stop])
 
-  const applySessionToLiveBuffer = useCallback((session: VoiceSession) => {
+  const applySessionToLiveBuffer = useCallback((session: VoiceSession, issuedAt: number) => {
     if (!session.found) return
 
-    let next = getVoiceLiveLines()
     if (!greetingCommittedRef.current && session.turns.some((turn) => turn.n === 0)) {
       greetingCommittedRef.current = true
-      next = dropLeadingAssistant(next)
     }
 
-    const spoken = committedVoiceTurnCount(session.turns)
-    const grew = Math.max(0, spoken - committedTurnCountRef.current)
-    for (let i = 0; i < grew; i += 1) next = dropCommittedLivePair(next)
-    committedTurnCountRef.current = spoken
-    setVoiceLiveLines(next)
+    /* Only clear when this sync advanced committed turns — same fresh.length gate as the
+       message merge. Safe because runVoiceTurn writes the session document *before* it
+       returns speakText to Retell: "no new n" means the turn genuinely has not happened
+       yet (filler stop, tool still running), not that we raced a write. Clearing then
+       would wipe live lines into a void with nothing to replace them. */
+    const lastSeen = overlayClearedTurnNRef.current
+    const fresh = freshVoiceTurns(session.turns, lastSeen)
+    if (!fresh.length) return
+
+    overlayClearedTurnNRef.current = lastVoiceTurnN(session.turns, lastSeen)
+
+    /* Drop by request issue time, not content. Each committed turn carries both said and
+       spoke, so everything spoken before this sync is already on the committed side.
+       Lines that arrived while the request was in flight stay — next turn's preview. */
+    setVoiceLiveLines(dropLinesBefore(getVoiceLiveLines(), issuedAt))
   }, [])
 
   const scheduleSessionSync = useCallback(() => {
@@ -87,10 +96,11 @@ export function useVoiceCall(opts: {
       syncTimerRef.current = null
       const voiceSessionId = sessionIdRef.current
       if (!voiceSessionId) return
+      const issuedAt = Date.now()
       void fetchVoiceSession(voiceSessionId)
         .then((session) => {
           optsRef.current.onSessionSync?.(session)
-          applySessionToLiveBuffer(session)
+          applySessionToLiveBuffer(session, issuedAt)
         })
         .catch(() => {})
     }, SESSION_SYNC_DEBOUNCE_MS)
@@ -129,8 +139,11 @@ export function useVoiceCall(opts: {
         onUpdate: (update) => {
           const buffer = getVoiceLiveLines()
           const last = lastLiveTranscriptEntry(update)
-          // After a turn commits the buffer is empty; Retell still repeats the last agent
-          // row until the caller speaks. Do not put that committed line back in the overlay.
+          // After a gated clear the buffer is empty because those lines were committed.
+          // Retell still repeats the last agent row until the caller speaks — do not put
+          // that committed line back. Only sound once the clear itself is gated on fresh
+          // turns; an ungated clear left the buffer empty while the real answer was still
+          // streaming, and this guard then blocked it from reappearing.
           if (buffer.length === 0 && last?.role === 'assistant' && greetingCommittedRef.current) {
             return
           }

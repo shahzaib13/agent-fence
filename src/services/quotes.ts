@@ -8,6 +8,8 @@
 // whatever was collected while they were still a guest.
 import type {
   AlternativeOffer,
+  AnswerImage,
+  AnswerSource,
   ChatOption,
   ChecklistData,
   ChecklistDisplay,
@@ -36,6 +38,9 @@ export interface StoredMessage {
   checklist?: ChecklistData | null
   expects?: 'suburb'
   alternatives?: AlternativeOffer[]
+  images?: AnswerImage[]
+  sources?: AnswerSource[]
+  pickedBudget?: AnswerSource
   checklistDisplay?: ChecklistDisplay
 }
 

@@ -95,6 +95,80 @@ export interface ChatOption {
   value: string | number | boolean
 }
 
+/** A photo the assistant found on someone else's site — never our own work. */
+export interface AnswerImage {
+  url: string
+  thumbUrl: string
+  sourceName: string
+  width: number
+  height: number
+}
+
+/** A published per-metre figure. `budgetValue` is what a chip sends back as the turn's message. */
+export interface AnswerSource {
+  name: string
+  figure: string
+  perMetreMin?: number
+  perMetreMax?: number
+  budgetValue: string | null
+  url?: string | null
+}
+
+/**
+ * Optional payload on a turn that answered something of the customer's own.
+ * `text` is already prefixed into `message` — do not render it a second time.
+ * Presence of `images` / non-null `budgetValue` on a source is the signal, not `kind`.
+ */
+export interface ChatAnswer {
+  text?: string
+  kind?: string
+  images?: AnswerImage[]
+  sources?: AnswerSource[]
+}
+
+export function parseAnswerImages(raw: unknown): AnswerImage[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const images: AnswerImage[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as Record<string, unknown>
+    const thumbUrl = typeof row.thumbUrl === 'string' ? row.thumbUrl.trim() : ''
+    const sourceName = typeof row.sourceName === 'string' ? row.sourceName.trim() : ''
+    if (!thumbUrl || !sourceName) continue
+    const url = typeof row.url === 'string' ? row.url.trim() : ''
+    const width = typeof row.width === 'number' && Number.isFinite(row.width) && row.width > 0 ? row.width : 4
+    const height = typeof row.height === 'number' && Number.isFinite(row.height) && row.height > 0 ? row.height : 3
+    images.push({ url, thumbUrl, sourceName, width, height })
+    if (images.length === 6) break
+  }
+  return images.length ? images : undefined
+}
+
+export function parseAnswerSources(raw: unknown): AnswerSource[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const sources: AnswerSource[] = []
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as Record<string, unknown>
+    const name = typeof row.name === 'string' ? row.name.trim() : ''
+    const figure = typeof row.figure === 'string' ? row.figure.trim() : ''
+    if (!name || !figure) continue
+    const budgetValue =
+      typeof row.budgetValue === 'string' && row.budgetValue.trim() ? row.budgetValue.trim() : null
+    const perMetreMin = typeof row.perMetreMin === 'number' && Number.isFinite(row.perMetreMin) ? row.perMetreMin : undefined
+    const perMetreMax = typeof row.perMetreMax === 'number' && Number.isFinite(row.perMetreMax) ? row.perMetreMax : undefined
+    const url = typeof row.url === 'string' ? row.url : row.url === null ? null : undefined
+    sources.push({ name, figure, budgetValue, perMetreMin, perMetreMax, url })
+  }
+  return sources.length ? sources : undefined
+}
+
+/** Sources a budget chip can send — `budgetValue` is null on advice turns and on figure-less rows. */
+export function budgetSources(sources: AnswerSource[] | undefined): Array<AnswerSource & { budgetValue: string }> {
+  if (!sources) return []
+  return sources.filter((source): source is AnswerSource & { budgetValue: string } => !!source.budgetValue)
+}
+
 // Field keys are whatever the checklist object currently has. Fencing also carries a `_ui`
 // object for option paging — never display it, always round-trip it verbatim.
 export type ChecklistValue = string | number | boolean | null | string[] | Record<string, unknown>
@@ -181,6 +255,8 @@ export interface FencingChatResponse {
   alternatives?: AlternativeOffer[]
   /** Present on the last turn — listen to `quoteResults/{resultId}` for refresh-safe results. */
   resultId?: string
+  /** Optional — photos and rate sources. `message` still holds the words; do not also draw `answer.text`. */
+  answer?: ChatAnswer
 }
 
 /**
