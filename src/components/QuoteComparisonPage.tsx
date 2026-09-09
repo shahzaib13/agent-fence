@@ -128,10 +128,12 @@ export function QuoteComparisonPage({
           {comparison.quotes.length === 0 ? (
             <p className="rounded-3xl border border-[#F3F4F6] bg-white p-6 text-base leading-7 text-[#062D27] shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
               {message?.trim() ||
-                'No comparable quotes found yet for that suburb and fence type — try a nearby suburb or a different fence type.'}
+                'No comparable quotes found yet for that suburb — try a nearby suburb or a different job type.'}
             </p>
           ) : (
-            comparison.quotes.map((quote) => <QuoteCard key={quote.businessName} quote={quote} />)
+            comparison.quotes.map((quote) => (
+              <QuoteCard key={quote.businessName} quote={quote} trade={quoteSession.trade} />
+            ))
           )}
         </div>
 

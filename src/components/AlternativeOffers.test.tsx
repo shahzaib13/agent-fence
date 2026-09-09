@@ -33,4 +33,27 @@ describe('AlternativeOffers', () => {
     await user.click(screen.getByRole('button', { name: /colorbond, 1\.8m/i }))
     expect(onSelect).toHaveBeenCalledWith({ label: 'Colorbond, 1.8m', value: 'alt:colorbond:1.8m' })
   })
+
+  it('renders a labelled alternative without fencing field names', async () => {
+    const onSelect = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <AlternativeOffers
+        alternatives={[
+          {
+            label: 'Porcelain, 12m²',
+            businessName: 'Paky Tiles',
+            estimatedTotal: 1440,
+            value: 'alt:porcelain:12',
+          },
+        ]}
+        options={[{ label: 'Porcelain, 12m² · $1,440', value: 'alt:porcelain:12' }]}
+        onSelect={onSelect}
+      />,
+    )
+
+    expect(screen.getByText('Porcelain, 12m²')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /porcelain, 12m²/i }))
+    expect(onSelect).toHaveBeenCalledWith({ label: 'Porcelain, 12m²', value: 'alt:porcelain:12' })
+  })
 })

@@ -222,12 +222,26 @@ export interface ChecklistDisplayRow {
 export type ChecklistDisplay = Record<string, ChecklistDisplayRow>
 
 export interface AlternativeOffer {
-  material: string
-  materialLabel: string
-  heightKey: string
+  /** Present on fencing alts; tiling (and later trades) may send `label` instead. */
+  material?: string
+  materialLabel?: string
+  heightKey?: string
+  /** Ready-made chip text when the backend does not send fencing material/height fields. */
+  label?: string
   businessName: string
   estimatedTotal: number
   value: string
+}
+
+/** Card title for an alternative — never composed in the chat UI from fencing field names. */
+export function alternativeOfferLabel(offer: AlternativeOffer): string {
+  if (typeof offer.label === 'string' && offer.label.trim()) return offer.label.trim()
+  return [offer.materialLabel, offer.heightKey].filter((part) => typeof part === 'string' && part.trim()).join(', ')
+}
+
+/** `ratePerMeter` keeps its name for every trade; only the printed unit changes. */
+export function rateUnitSuffix(trade?: string | null): string {
+  return trade === 'tiling' ? '/m²' : '/m'
 }
 
 export interface FencingChatResponse {
@@ -249,7 +263,8 @@ export interface FencingChatResponse {
   checklistAnswered?: import('./voice').ChecklistAnsweredItem[]
   checklistPending?: import('./voice').ChecklistPendingItem[]
   checklistComplete?: boolean
-  trade?: string
+  /** Null only on the "Fencing or Tiling?" turn — do not assume a string. */
+  trade?: string | null
   place?: SuburbPlace | null
   noMatchReason?: string
   alternatives?: AlternativeOffer[]
@@ -259,10 +274,14 @@ export interface FencingChatResponse {
   answer?: ChatAnswer
 }
 
+const CLIENT_CHAT_PATH = '/api/v1/client/chat'
+const CLIENT_CHAT_PATH_RE = /\/api\/v1\/client\/(fencing-chat|chat)$/
+
 /**
- * QuoteMy fencing chat. Prefer `VITE_FENCING_CHAT_URL` (full endpoint), otherwise
- * `{VITE_QUOTEMY_API_BASE_URL}/api/v1/client/fencing-chat`. `VITE_FENCING_CHAT_WEBHOOK_URL`
- * is still accepted as an alias so existing env files keep working.
+ * QuoteMy client chat (fencing + tiling). Prefer `VITE_FENCING_CHAT_URL` (full endpoint),
+ * otherwise `{VITE_QUOTEMY_API_BASE_URL}/api/v1/client/chat`. `VITE_FENCING_CHAT_WEBHOOK_URL`
+ * is still accepted as an alias so existing env files keep working. The old
+ * `/fencing-chat` path still answers identically if an explicit URL points there.
  */
 function fencingChatUrl(): string {
   const explicit =
@@ -271,10 +290,10 @@ function fencingChatUrl(): string {
   if (explicit) return explicit
 
   const base = quoteMyApiBase()
-  if (base) return `${base}/api/v1/client/fencing-chat`
+  if (base) return `${base}${CLIENT_CHAT_PATH}`
 
   throw new Error(
-    'Fencing chat API URL is not configured. Set VITE_QUOTEMY_API_BASE_URL or VITE_FENCING_CHAT_URL.',
+    'Chat API URL is not configured. Set VITE_QUOTEMY_API_BASE_URL or VITE_FENCING_CHAT_URL.',
   )
 }
 
@@ -287,7 +306,7 @@ export function quoteMyApiBase(): string | undefined {
     (import.meta.env.VITE_FENCING_CHAT_WEBHOOK_URL as string | undefined)?.trim()
   if (explicit) {
     const trimmed = explicit.replace(/\/$/, '')
-    const stripped = trimmed.replace(/\/api\/v1\/client\/fencing-chat$/, '')
+    const stripped = trimmed.replace(CLIENT_CHAT_PATH_RE, '')
     return stripped || undefined
   }
   const base = (import.meta.env.VITE_QUOTEMY_API_BASE_URL as string | undefined)?.trim().replace(/\/$/, '')
@@ -320,10 +339,12 @@ export function resultIdFromMetadata(data: unknown): string | undefined {
   return nested?.resultId
 }
 
-/** Carried across turns — only `knownChecklist` and `place` are sent to the API. */
+/** Carried across turns — `knownChecklist` and `place` always go; `trade` only when locked. */
 export interface SessionContext {
   knownChecklist?: ChecklistData | null
   place?: SuburbPlace | null
+  /** Chip or a previously settled trade. Omit/null lets the backend read it from the words. */
+  trade?: string | null
 }
 
 /** How `knownChecklist` is encoded — always the last response's checklist, `_ui` and all. */
@@ -340,11 +361,13 @@ export async function sendFencingChatMessage(
 ): Promise<FencingChatResponse> {
   const knownChecklist = serialiseKnownChecklist(session?.knownChecklist)
   const place = session?.place ? JSON.stringify(session.place) : ''
-  const fields = {
+  const trade = typeof session?.trade === 'string' ? session.trade.trim() : ''
+  const fields: Record<string, string> = {
     message,
     sessionId,
     place,
     knownChecklist,
+    ...(trade ? { trade } : {}),
   }
 
   let payload: FormData | typeof fields

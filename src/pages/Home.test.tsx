@@ -127,6 +127,7 @@ describe('Home', () => {
     expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], {
       knownChecklist: null,
       place: null,
+      trade: null,
     })
     // the composer is always there — the user can type at any point, MCQ on screen or not
     expect(screen.getByLabelText(/your reply/i)).toBeInTheDocument()
@@ -686,6 +687,7 @@ describe('Home', () => {
     expect(mockedSend).toHaveBeenLastCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], {
       knownChecklist: null,
       place: null,
+      trade: null,
     })
   })
 
@@ -907,6 +909,7 @@ describe('Home', () => {
     expect(mockedSend).toHaveBeenCalledWith('I need a deck — ', expect.any(String), [], {
       knownChecklist: null,
       place: null,
+      trade: 'decking',
     })
   })
 
@@ -934,12 +937,13 @@ describe('Home', () => {
     expect(mockedSend).toHaveBeenLastCalledWith('I need a tiling — ', expect.any(String), [], {
       knownChecklist: null,
       place: null,
+      trade: 'tiling',
     })
 
-    // Chip locked tiling → Other stays metres-only even if the backend claims fencing
-    expect(await screen.findByLabelText(/length in metres/i)).toBeInTheDocument()
+    // Chip locked tiling → Other stays free-text even if the backend claims fencing
+    expect(await screen.findByLabelText(/your answer/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/your answer/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
   })
 
   it('locks trade from the chip when mapped, otherwise leaves it for the backend', async () => {
@@ -961,6 +965,7 @@ describe('Home', () => {
       expect(mockedSend).toHaveBeenCalledWith('I need a fence — ', expect.any(String), [], {
         knownChecklist: null,
         place: null,
+        trade: 'fencing',
       }),
     )
   })
@@ -1000,6 +1005,7 @@ describe('Home', () => {
     expect(mockedSend).toHaveBeenCalledWith('Colorbond fence, Berwick, 20m', expect.any(String), [], {
       knownChecklist: null,
       place: null,
+      trade: null,
     })
   })
 
@@ -1020,7 +1026,73 @@ describe('Home', () => {
     expect(mockedSend).toHaveBeenCalledWith('I need a medical report', expect.any(String), [], {
       knownChecklist: null,
       place: null,
+      trade: null,
     })
+  })
+
+  it('renders a null-trade picker turn and sends the tapped value as the next message', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      trade: null,
+      message: 'Are you looking for Fencing or Tiling services?',
+      options: [
+        { label: 'Fencing', value: 'fencing' },
+        { label: 'Tiling', value: 'tiling' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: { _ui: { page: 0 } },
+    })
+
+    await startChat(user, 'hi, I need a quote')
+
+    expect(await screen.findByRole('button', { name: 'Tiling' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Fencing' })).toBeInTheDocument()
+
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      trade: 'tiling',
+      message: 'What are you having tiled?',
+      options: [
+        { label: 'Bathroom', value: 'bathroom' },
+        { label: 'Floor only', value: 'floor_only' },
+      ],
+      results: [],
+      avgRatePerMeter: null,
+      checklist: { _ui: { page: 0 } },
+    })
+    await user.click(screen.getByRole('button', { name: 'Tiling' }))
+
+    expect(mockedSend).toHaveBeenLastCalledWith(
+      'tiling',
+      expect.any(String),
+      undefined,
+      expect.objectContaining({ trade: null, knownChecklist: { _ui: { page: 0 } } }),
+    )
+    expect(await screen.findByText(/what are you having tiled/i)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Bathroom' })).toBeInTheDocument()
+  })
+
+  it('does not ask which trade when the backend already locked tiling from the words', async () => {
+    const user = userEvent.setup()
+    mockedSend.mockResolvedValueOnce({
+      sessionId: 'session-1',
+      type: 'question',
+      trade: 'tiling',
+      message: 'What are you having tiled?',
+      options: [{ label: 'Bathroom', value: 'bathroom' }],
+      results: [],
+      avgRatePerMeter: null,
+    })
+
+    await startChat(user, 'I need my bathroom tiled')
+
+    expect(await screen.findByText(/what are you having tiled/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Fencing' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Tiling' })).not.toBeInTheDocument()
   })
 
   it('answers a suburb turn from the picker and carries the whole place to the workflow', async () => {

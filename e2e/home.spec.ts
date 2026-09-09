@@ -14,7 +14,7 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
 }) => {
   let call = 0
 
-  await page.route('**/api/v1/client/fencing-chat', async (route) => {
+  await page.route(/\/api\/v1\/client\/(chat|fencing-chat)/, async (route) => {
     call += 1
     // The final ranking turn is the slow one in reality — give it long enough here that the
     // thinking screen is actually observable rather than a flash.
@@ -88,7 +88,7 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
 
   // the row collapses to the chosen answer, labelled with the field it filled in
   await expect(page.getByRole('button', { name: '1500mm' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /Height: 1800mm/ })).toBeVisible({ timeout: 8000 })
+  await expect(page.getByText('Height: 1800mm')).toBeVisible({ timeout: 8000 })
 
   await expect(page.getByText(/does this look right/i)).toBeVisible({ timeout: 8000 })
   await page.getByRole('button', { name: /yes, that's all correct/i }).click()
@@ -105,7 +105,7 @@ test('describes a fencing job, answers in the thread, confirms the brief, then s
 })
 
 test('other project types open the chat and hit the webhook', async ({ page }) => {
-  await page.route('**/api/v1/client/fencing-chat', async (route) => {
+  await page.route(/\/api\/v1\/client\/(chat|fencing-chat)/, async (route) => {
     await route.fulfill({
       json: {
         sessionId: 'x',
@@ -126,4 +126,85 @@ test('other project types open the chat and hit the webhook', async ({ page }) =
   await expect(page.getByRole('heading', { name: /deck quotes are in development/i })).toHaveCount(0)
   await expect(page.getByText('A 6x4m timber deck')).toBeVisible()
   await expect(page.getByText(/what suburb is this in/i)).toBeVisible()
+})
+
+test('an ambiguous quote gets a fencing/tiling question and tapping tiling continues', async ({ page }) => {
+  let call = 0
+  await page.route(/\/api\/v1\/client\/(chat|fencing-chat)/, async (route) => {
+    call += 1
+    if (call === 1) {
+      await route.fulfill({
+        json: {
+          sessionId: 'e2e-trade',
+          type: 'question',
+          trade: null,
+          message: 'Are you looking for Fencing or Tiling services?',
+          options: [
+            { label: 'Fencing', value: 'fencing' },
+            { label: 'Tiling', value: 'tiling' },
+          ],
+          results: [],
+          avgRatePerMeter: null,
+          checklist: { _ui: { page: 0 } },
+        },
+      })
+      return
+    }
+    await route.fulfill({
+      json: {
+        sessionId: 'e2e-trade',
+        type: 'question',
+        trade: 'tiling',
+        message: 'What are you having tiled?',
+        options: [
+          { label: 'Bathroom', value: 'bathroom' },
+          { label: 'Floor only', value: 'floor_only' },
+        ],
+        results: [],
+        avgRatePerMeter: null,
+        checklist: { _ui: { page: 0 } },
+      },
+    })
+  })
+
+  await page.goto('/')
+  await page.getByLabel(/describe your construction project/i).fill('hi, I need a quote')
+  await page.getByRole('button', { name: /start analysis/i }).click()
+
+  await expect(page.getByText(/fencing or tiling/i)).toBeVisible()
+  await page.getByRole('button', { name: 'Tiling' }).click()
+  await expect(page.getByText(/what are you having tiled/i)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Bathroom' })).toBeVisible()
+})
+
+test('a tiling result prints per square metre, not per metre', async ({ page }) => {
+  await page.route(/\/api\/v1\/client\/(chat|fencing-chat)/, async (route) => {
+    await route.fulfill({
+      json: {
+        sessionId: 'e2e-tiling',
+        type: 'result',
+        trade: 'tiling',
+        message: 'Here is what I found nearby.',
+        options: [],
+        results: [
+          {
+            businessName: 'Paky Tiles',
+            suburb: 'Berwick, VIC 3806',
+            ratePerMeter: 72,
+            estimatedTotal: 1440,
+            notes: 'incl. GST · You supply the tiles',
+          },
+        ],
+        avgRatePerMeter: 72,
+      },
+    })
+  })
+
+  await page.goto('/')
+  await page.getByLabel(/describe your construction project/i).fill('I need my bathroom tiled')
+  await page.getByRole('button', { name: /start analysis/i }).click()
+
+  await expect(page.getByRole('heading', { name: /your local quote comparison/i })).toBeVisible({ timeout: 8000 })
+  await expect(page.getByText('$72/m² rate')).toBeVisible()
+  await expect(page.getByText('$72/m rate')).toHaveCount(0)
 })

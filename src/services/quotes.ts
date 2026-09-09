@@ -78,12 +78,20 @@ export interface QuoteSession {
 export function quoteTitle(session: QuoteSession) {
   const checklist = session.checklist ?? {}
   const suburb = checklist.suburb
+  const trade = session.trade
+
+  if (trade === 'tiling') {
+    const job = checklist.jobType ?? checklist.tileType
+    if (job && suburb) return `${String(job)} tiling, ${suburb}`
+    if (suburb) return `Tiling in ${suburb}`
+  }
+
   const fenceLabel =
-    session.trade === 'fencing'
+    trade === 'fencing' || !trade
       ? checklist.material ?? checklist.fenceType
       : checklist.fenceType ?? checklist.material
   if (fenceLabel && suburb) return `${String(fenceLabel)} fence, ${suburb}`
-  if (suburb) return `Fence in ${suburb}`
+  if (suburb) return trade ? `${trade} in ${suburb}` : `Fence in ${suburb}`
   const firstAsk = session.messages.find((message) => message.role === 'user')?.text
   return firstAsk?.slice(0, 60) || 'New quote'
 }

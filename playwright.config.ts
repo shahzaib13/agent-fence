@@ -10,7 +10,7 @@ export default defineConfig({
     // Google calls anyway — so the browser needs a key present, never a working one.
     env: {
       VITE_GOOGLE_MAPS_API_KEY: 'e2e-test-key',
-      VITE_FENCING_CHAT_URL: 'http://fencing-chat.test/api/v1/client/fencing-chat',
+      VITE_FENCING_CHAT_URL: 'http://fencing-chat.test/api/v1/client/chat',
     },
   },
   use: {

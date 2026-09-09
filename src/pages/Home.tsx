@@ -357,7 +357,14 @@ export function Home({
       if (response.intent && (!intentRef.current || (response.intent === 'compare_quote' && hasQuoteToBeat))) {
         setIntent(response.intent)
       }
-      if (!tradeRef.current && response.trade && KNOWN_TRADES.has(response.trade)) setTrade(response.trade)
+      if (
+        !tradeRef.current &&
+        typeof response.trade === 'string' &&
+        response.trade.trim() &&
+        KNOWN_TRADES.has(response.trade)
+      ) {
+        setTrade(response.trade)
+      }
       if (response.checklist) setChecklist(response.checklist)
       if (response.checklistDisplay) setChecklistDisplay(response.checklistDisplay)
       applyChecklistAnsweredState(response.checklistAnswered, setChecklistAnswered)
@@ -600,6 +607,7 @@ export function Home({
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles, {
         knownChecklist: previousChecklist,
         place: confirmedPlace ?? place,
+        trade,
       })
       applyTurn(response, previousChecklist, answeredId)
       return response
@@ -611,7 +619,7 @@ export function Home({
       const code = chatError?.code ?? 'client'
 
       // Dev-only detail — never put `code` / status in the bubble.
-      console.error('[fencing-chat]', {
+      console.error('[client-chat]', {
         code,
         status: chatError?.status,
         retryable,
@@ -620,7 +628,7 @@ export function Home({
       })
       if (code === 'too_fast') {
         console.warn(
-          '[fencing-chat] too_fast — likely a client loop (double-send / missing loading guard), not a fast user',
+          '[client-chat] too_fast — likely a client loop (double-send / missing loading guard), not a fast user',
         )
       }
 

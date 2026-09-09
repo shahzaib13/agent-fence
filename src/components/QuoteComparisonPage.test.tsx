@@ -136,6 +136,19 @@ describe('QuoteComparisonPage', () => {
     expect(screen.getByText('$118/m rate')).toBeInTheDocument()
   })
 
+  it('prints tiling rates per square metre, not per metre', () => {
+    render(
+      <QuoteComparisonPage
+        quoteSession={{ ...quoteSession, trade: 'tiling' }}
+        comparison={baseComparison}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('$118/m² rate')).toBeInTheDocument()
+    expect(screen.queryByText('$118/m rate')).not.toBeInTheDocument()
+  })
+
   it('shows neither a lead time nor a proceed button', () => {
     render(<QuoteComparisonPage quoteSession={quoteSession} comparison={baseComparison} onBack={vi.fn()} />)
 

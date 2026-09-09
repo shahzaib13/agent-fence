@@ -1,4 +1,4 @@
-import type { ComparisonQuote, ComparisonSummary } from './fencingChat'
+import { rateUnitSuffix, type ComparisonQuote, type ComparisonSummary } from './fencingChat'
 import type { QuoteSession } from './quotes'
 import { BRIEF_HIDDEN_KEYS, checklistFieldLabel, formatChecklistValue } from '../utils/checklist'
 
@@ -76,6 +76,7 @@ export function buildAiSummary(session: QuoteSession): Omit<AiSummary, 'quote'> 
 export function buildAiSummaryQuote(
   quote: ComparisonQuote,
   comparison: ComparisonSummary | null,
+  trade?: string | null,
 ): AiSummaryQuote {
   const projectTotal =
     quote.projectTotalMin === quote.projectTotalMax
@@ -84,7 +85,7 @@ export function buildAiSummaryQuote(
 
   return withoutNullish({
     businessName: quote.businessName,
-    rate: `$${quote.ratePerMeter}/m`,
+    rate: `$${quote.ratePerMeter}${rateUnitSuffix(trade)}`,
     projectTotal,
     ...(quote.savingsFromAverage != null && quote.savingsFromAverage > 0
       ? { savings: `$${quote.savingsFromAverage.toLocaleString()}` }

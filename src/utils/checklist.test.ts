@@ -31,6 +31,8 @@ describe('checklistFieldLabel', () => {
   it('maps a known key to its human label', () => {
     expect(checklistFieldLabel('fenceType')).toBe('Fence type')
     expect(checklistFieldLabel('material')).toBe('Material')
+    expect(checklistFieldLabel('jobType')).toBe('Job')
+    expect(checklistFieldLabel('areaSqm')).toBe('Area')
   })
 
   it('falls back to the raw key when unrecognised', () => {
@@ -53,10 +55,20 @@ describe('formatChecklistValue', () => {
     expect(formatChecklistValue('heightKey', '1.8m')).toBe('1.8m')
     expect(formatChecklistValue('conditions', ['rock', 'sloped'])).toBe('Rocky ground, Sloped ground')
     expect(formatChecklistValue('existingPrice', 2400)).toBe('$2400')
+    expect(formatChecklistValue('areaSqm', 20)).toBe('20m²')
+    expect(formatChecklistValue('areaSqm', '10-20')).toBe('10-20m²')
+    expect(formatChecklistValue('areaSqm', '40+')).toBe('40m²+')
   })
 
   it('returns an empty string for null', () => {
     expect(formatChecklistValue('suburb', null)).toBe('')
+  })
+
+  it('formats the removal yes/no values and title-cases a named type from free text', () => {
+    expect(formatChecklistValue('removal', 'any')).toBe('Yes')
+    expect(formatChecklistValue('removal', 'none')).toBe('None')
+    expect(formatChecklistValue('removal', 'timber')).toBe('Timber')
+    expect(formatChecklistValue('removal', 'ceramic')).toBe('Ceramic')
   })
 })
 

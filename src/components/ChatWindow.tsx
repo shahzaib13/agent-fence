@@ -79,8 +79,8 @@ function CheckBadge() {
   )
 }
 
-// `__other__` is never a button — the box sits next to the real tiles. Legacy flows use a
-// numeric length box; fencing accepts any free-text answer.
+// `__other__` is never a button — the box sits next to the real tiles. Fencing and tiling
+// accept any free-text answer; other trades still use a numeric length box.
 function CustomAnswer({
   mode,
   disabled,
@@ -590,7 +590,7 @@ export function ChatWindow({
   onStartVoice?: () => void
   onHangUp?: () => void
 }) {
-  const otherInputMode = trade === 'fencing' ? 'text' : 'numeric'
+  const otherInputMode = trade === 'fencing' || trade === 'tiling' ? 'text' : 'numeric'
   const controlsDisabled = isLoading || !!interactionDisabled
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)

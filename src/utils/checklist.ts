@@ -55,8 +55,13 @@ const FIELD_LABELS: Record<string, string> = {
   lengthMeters: 'Length',
   heightMm: 'Height',
   heightKey: 'Height',
+  jobType: 'Job',
+  tileType: 'Tiles',
+  areaSqm: 'Area',
+  supply: 'Who supplies',
+  waterproofing: 'Waterproofing',
   removeOldFence: 'Remove old fence',
-  removal: 'Old fence',
+  removal: 'Removal',
   siteAccess: 'Site access',
   conditions: 'Site conditions',
   gateType: 'Gate',
@@ -68,9 +73,10 @@ export function checklistFieldLabel(key: string): string {
   return FIELD_LABELS[key] ?? key
 }
 
+// Brief display of values the server stored — not the chat chips. The yes/no question sends
+// `any` / `none`; a named type only appears after free text, and is title-cased as-is.
 const REMOVAL_LABELS: Record<string, string> = {
-  timber: 'Timber',
-  metal: 'Metal',
+  any: 'Yes',
   none: 'None',
 }
 
@@ -92,9 +98,15 @@ export function formatChecklistValue(key: string, value: ChecklistValue): string
   if (key === 'lengthMeters') {
     return typeof value === 'string' && value.endsWith('+') ? `${value.slice(0, -1)}m+` : `${value}m`
   }
+  if (key === 'areaSqm') {
+    return typeof value === 'string' && value.endsWith('+') ? `${value.slice(0, -1)}m²+` : `${value}m²`
+  }
   if (key === 'heightMm') return `${value}mm`
   if (key === 'heightKey') return String(value)
-  if (key === 'removal') return REMOVAL_LABELS[String(value)] ?? String(value)
+  if (key === 'removal') {
+    const raw = String(value)
+    return REMOVAL_LABELS[raw] ?? (raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : raw)
+  }
   if (key === 'existingPrice') return `$${value}`
   return String(value)
 }

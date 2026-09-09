@@ -1,9 +1,9 @@
-import type { ComparisonQuote } from '../services/fencingChat'
+import { rateUnitSuffix, type ComparisonQuote } from '../services/fencingChat'
 
 // One ranked business. Lives on its own because two places render it now: the results page
 // and the Instant Quote modal. The business name stays hidden in both — the client only
 // learns who they picked once the lead is filed and they land on the partner site.
-export function QuoteCard({ quote }: { quote: ComparisonQuote }) {
+export function QuoteCard({ quote, trade }: { quote: ComparisonQuote; trade?: string | null }) {
   const isBestValue = quote.tag === 'BEST_VALUE'
   const hasSavings = quote.savingsFromAverage != null && quote.savingsFromAverage > 0
   const savingsLabel = hasSavings ? `Saves $${quote.savingsFromAverage!.toLocaleString()} from avg.` : 'At local average'
@@ -38,7 +38,9 @@ export function QuoteCard({ quote }: { quote: ComparisonQuote }) {
             {quote.businessName}
           </p>
           <span className="sr-only">Business name hidden</span>
-          <p className="text-base leading-6 text-[#6B7280]">${quote.ratePerMeter}/m rate</p>
+          <p className="text-base leading-6 text-[#6B7280]">
+            {`$${quote.ratePerMeter}${rateUnitSuffix(trade)} rate`}
+          </p>
           {quote.badges.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 pt-1 sm:gap-4">
               {quote.badges.map((badge) => (
