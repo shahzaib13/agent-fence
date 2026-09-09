@@ -231,6 +231,18 @@ describe('quotes', () => {
       expect(quoteTitle(session({ checklist: { suburb: 'Pakenham' } }))).toBe('Fence in Pakenham')
     })
 
+    it('names a tiling quote by job and suburb, not as a fence', () => {
+      expect(
+        quoteTitle(
+          session({
+            trade: 'tiling',
+            checklist: { jobType: 'bathroom', suburb: 'Berwick, VIC 3806' },
+          }),
+        ),
+      ).toBe('bathroom tiling, Berwick, VIC 3806')
+      expect(quoteTitle(session({ trade: 'tiling', checklist: { suburb: 'Berwick' } }))).toBe('Tiling in Berwick')
+    })
+
     it('falls back to what the customer first asked for, then to a placeholder', () => {
       expect(quoteTitle(session())).toBe('I need a fence')
       expect(quoteTitle(session({ messages: [] }))).toBe('New quote')

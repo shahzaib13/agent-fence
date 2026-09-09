@@ -4,10 +4,12 @@ import { api } from './api'
 import {
   FENCING_CHAT_FALLBACK_MESSAGE,
   FencingChatError,
+  alternativeOfferLabel,
   budgetSources,
   fencingChatFromMetadata,
   parseAnswerImages,
   parseAnswerSources,
+  rateUnitSuffix,
   resultIdFromMetadata,
   serialiseKnownChecklist,
   sendFencingChatMessage,
@@ -129,6 +131,54 @@ describe('sendFencingChatMessage', () => {
       { message: 'hello', sessionId: 's1', place: '', knownChecklist: '' },
       expect.anything(),
     )
+  })
+
+  it('posts to /api/v1/client/chat when only the API base is set', async () => {
+    vi.stubEnv('VITE_FENCING_CHAT_URL', '')
+    vi.stubEnv('VITE_FENCING_CHAT_WEBHOOK_URL', '')
+    vi.stubEnv('VITE_QUOTEMY_API_BASE_URL', 'https://api.example.test')
+    mockedPost.mockResolvedValueOnce({ data: ok })
+
+    await sendFencingChatMessage('hello', 's1')
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      'https://api.example.test/api/v1/client/chat',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
+  it('sends trade only when the conversation has locked one', async () => {
+    mockedPost.mockResolvedValue({ data: ok })
+
+    await sendFencingChatMessage('hello', 's1', null, { trade: 'tiling' })
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      expect.any(String),
+      { message: 'hello', sessionId: 's1', place: '', knownChecklist: '', trade: 'tiling' },
+      expect.anything(),
+    )
+
+    await sendFencingChatMessage('hello', 's1', null, { trade: null })
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      expect.any(String),
+      { message: 'hello', sessionId: 's1', place: '', knownChecklist: '' },
+      expect.anything(),
+    )
+  })
+
+  it('accepts a turn whose trade is null', async () => {
+    const picker = {
+      ...ok,
+      type: 'question' as const,
+      trade: null,
+      message: 'Are you looking for Fencing or Tiling services?',
+      options: [
+        { label: 'Fencing', value: 'fencing' },
+        { label: 'Tiling', value: 'tiling' },
+      ],
+    }
+    mockedPost.mockResolvedValueOnce({ data: picker })
+    await expect(sendFencingChatMessage('hi, I need a quote', 's1')).resolves.toEqual(picker)
   })
 
   it('round-trips the full checklist, including _ui and null fields', async () => {
@@ -317,5 +367,37 @@ describe('budgetSources', () => {
         { name: 'advice', figure: 'it depends', budgetValue: null },
       ]).map((source) => source.budgetValue),
     ).toEqual(['budget:85-100:hipages'])
+  })
+})
+
+describe('rateUnitSuffix', () => {
+  it('prints per square metre only for tiling', () => {
+    expect(rateUnitSuffix('tiling')).toBe('/m²')
+    expect(rateUnitSuffix('fencing')).toBe('/m')
+    expect(rateUnitSuffix(null)).toBe('/m')
+    expect(rateUnitSuffix(undefined)).toBe('/m')
+  })
+})
+
+describe('alternativeOfferLabel', () => {
+  it('prefers an explicit label, then the fencing display fields', () => {
+    expect(
+      alternativeOfferLabel({
+        label: 'Porcelain, 12m²',
+        businessName: 'Paky Tiles',
+        estimatedTotal: 1440,
+        value: 'alt:1',
+      }),
+    ).toBe('Porcelain, 12m²')
+    expect(
+      alternativeOfferLabel({
+        material: 'colorbond',
+        materialLabel: 'Colorbond',
+        heightKey: '1.8m',
+        businessName: 'Southeast Fencing',
+        estimatedTotal: 2200,
+        value: 'alt:2',
+      }),
+    ).toBe('Colorbond, 1.8m')
   })
 })

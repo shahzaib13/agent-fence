@@ -66,7 +66,7 @@ async function stubOtpService(page: Page) {
 // comparison page rather than replaying the whole conversation.
 async function goToResults(page: Page) {
   await stubOtpService(page)
-  await page.route('**/api/v1/client/fencing-chat', async (route) => {
+  await page.route(/\/api\/v1\/client\/(chat|fencing-chat)/, async (route) => {
     await route.fulfill({
       json: {
         sessionId: 'e2e-instant-quote',

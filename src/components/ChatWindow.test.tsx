@@ -174,6 +174,23 @@ describe('ChatWindow', () => {
       expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: 'chainmesh', value: 'chainmesh' })
     })
 
+    it('opens a free-text box for tiling Other answers without an Other button', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption, trade: 'tiling' })
+      const user = userEvent.setup()
+
+      expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+      expect(await screen.findByLabelText(/your answer/i)).toBeInTheDocument()
+      expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
+      await user.type(screen.getByLabelText(/your answer/i), 'laundry splashback')
+      await user.click(screen.getByRole('button', { name: /use this/i }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', {
+        label: 'laundry splashback',
+        value: 'laundry splashback',
+      })
+    })
+
     it('opens a metres box instead of sending "Other" anywhere', async () => {
       const onSelectOption = vi.fn()
       renderWindow([lengthQuestion], false, { onSelectOption })
@@ -218,6 +235,66 @@ describe('ChatWindow', () => {
       expect(await screen.findByRole('button', { name: '10m' })).toBeInTheDocument()
       expect(screen.getByLabelText(/length in metres/i)).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: /back to options/i })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('old fence / old tiles removal chips', () => {
+    const fencingRemoval: ChatMessage = {
+      id: 'ai-removal',
+      role: 'ai',
+      text: 'Is there an old fence to remove?',
+      options: [
+        { label: 'Yes, take it away', value: 'any' },
+        { label: 'Nothing to remove', value: 'none' },
+        { label: 'Other', value: '__other__' },
+      ],
+    }
+
+    const tilingRemoval: ChatMessage = {
+      id: 'ai-tiles',
+      role: 'ai',
+      text: 'Are there old tiles to take up?',
+      options: [
+        { label: 'Yes, take them up', value: 'any' },
+        { label: 'Nothing to take up', value: 'none' },
+        { label: 'Other', value: '__other__' },
+      ],
+    }
+
+    it('renders the server labels and never invents a removal type', async () => {
+      renderWindow([fencingRemoval], false, { trade: 'fencing' })
+
+      expect(await screen.findByRole('button', { name: 'Yes, take it away' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Nothing to remove' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /timber fence/i })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /ceramic tiles/i })).not.toBeInTheDocument()
+    })
+
+    it('sends the yes-answer value through when the first chip is tapped', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([tilingRemoval], false, { onSelectOption, trade: 'tiling' })
+      const user = userEvent.setup()
+
+      expect(await screen.findByRole('button', { name: 'Yes, take them up' })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Yes, take them up' }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-tiles', { label: 'Yes, take them up', value: 'any' })
+    })
+
+    it('sends free-text about the old type through unchanged', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([fencingRemoval], false, { onSelectOption, trade: 'fencing' })
+      const user = userEvent.setup()
+
+      await user.type(await screen.findByLabelText(/your answer/i), 'the old timber one')
+      await user.click(screen.getByRole('button', { name: /use this/i }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-removal', {
+        label: 'the old timber one',
+        value: 'the old timber one',
+      })
     })
   })
 
