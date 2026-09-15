@@ -16,7 +16,7 @@ const session = (overrides: Partial<QuoteSession> = {}): QuoteSession => ({
 
 async function pdfText(blob: Blob | null) {
   expect(blob).not.toBeNull()
-  return Buffer.from(await blob!.arrayBuffer()).toString('latin1')
+  return new TextDecoder('latin1').decode(await blob!.arrayBuffer())
 }
 
 describe('buildTranscriptPdf', () => {
