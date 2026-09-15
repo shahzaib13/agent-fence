@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { Header } from '../components/Header'
 import { useAuth } from '../hooks/useAuth'
+import { PUBLISHED_CLIENT_TRADES } from '../services/fencingChat'
 import { listQuotes, loadLocalQuotes, quoteTitle, type QuoteSession } from '../services/quotes'
 
 const relativeDay = (timestamp: number) => {
@@ -15,23 +16,37 @@ const relativeDay = (timestamp: number) => {
 export function Quotes() {
   const { user, isLoading: isAuthLoading } = useAuth()
   const navigate = useNavigate()
-  const [sessions, setSessions] = useState<QuoteSession[] | null>(null)
+  // Local history does not need Firebase. Starting from it means a hung auth restore cannot
+  // pin this page on skeleton cards — the remote list still replaces it once a user is known.
+  const [sessions, setSessions] = useState<QuoteSession[]>(() => loadLocalQuotes())
+  const [isRemoteLoading, setIsRemoteLoading] = useState(false)
 
   useEffect(() => {
     if (isAuthLoading) return
     // A guest still has a history — it just lives in this browser rather than in an account.
     if (!user) {
       setSessions(loadLocalQuotes())
+      setIsRemoteLoading(false)
       return
     }
     let current = true
-    void listQuotes(user.uid).then((found) => {
-      if (current) setSessions(found)
-    })
+    setIsRemoteLoading(true)
+    void listQuotes(user.uid)
+      .then((found) => {
+        if (current) setSessions(found)
+      })
+      .catch(() => {
+        if (current) setSessions(loadLocalQuotes())
+      })
+      .finally(() => {
+        if (current) setIsRemoteLoading(false)
+      })
     return () => {
       current = false
     }
   }, [user, isAuthLoading])
+
+  const showSkeletons = sessions.length === 0 && (isAuthLoading || isRemoteLoading)
 
   return (
     <div className="flex min-h-screen flex-col bg-[#FCFDFD]">
@@ -53,7 +68,7 @@ export function Quotes() {
           </Link>
         </div>
 
-        {sessions === null ? (
+        {showSkeletons ? (
           <div className="flex flex-col gap-3" aria-hidden="true">
             {[0, 1, 2].map((row) => (
               <div key={row} className="h-24 rounded-3xl border border-[#F3F4F6] bg-white" />
@@ -64,7 +79,7 @@ export function Quotes() {
           <div className="rounded-3xl border border-[#F3F4F6] bg-white p-8 text-center shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
             <p className="text-base text-[#062D27]">No quotes yet.</p>
             <p className="mt-1 text-sm text-[#6B7280]">
-              Describe a fencing job and the ones you start will show up here — finished or not.
+            Describe a job and the ones you start will show up here — finished or not.
             </p>
           </div>
         ) : (
@@ -78,13 +93,13 @@ export function Quotes() {
                 >
                   <div className="flex flex-col gap-2">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h2 className="text-lg font-semibold text-[#062D27]">{quoteTitle(session)}</h2>
+                      <h2 className="text-lg font-semibold text-[#062D27]">{quoteTitle(session, PUBLISHED_CLIENT_TRADES)}</h2>
                       <span
                         className={`rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase ${
                           isComplete ? 'bg-[#ECFDF5] text-[#047857]' : 'bg-[#F1F4F3] text-[#6B7280]'
                         }`}
                       >
-                        {isComplete ? 'Quoted' : 'In progress'}
+                        {isComplete ? 'Quoted' : 'In progress'}   
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[#6B7280]">

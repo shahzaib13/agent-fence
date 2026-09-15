@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { stubClientTrades } from './client-trades'
 
 // The checkbox itself is visually hidden behind its styled tick box, so a click lands on the
 // label — which is what a real pointer does too, since the whole card is the label.
@@ -66,6 +67,7 @@ async function stubOtpService(page: Page) {
 // comparison page rather than replaying the whole conversation.
 async function goToResults(page: Page) {
   await stubOtpService(page)
+  await stubClientTrades(page)
   await page.route(/\/api\/v1\/client\/(chat|fencing-chat)/, async (route) => {
     await route.fulfill({
       json: {
@@ -79,6 +81,7 @@ async function goToResults(page: Page) {
           { businessName: 'Southeast Fencing', suburb: 'Berwick', ratePerMeter: 184, estimatedTotal: 3680, notes: '1800mm' },
         ],
         avgRatePerMeter: 168,
+        unit: 'm',
       },
     })
   })

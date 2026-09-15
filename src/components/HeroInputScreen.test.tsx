@@ -94,3 +94,55 @@ describe('HeroInputScreen attachments', () => {
     expect(onSubmit).toHaveBeenCalledWith([expect.objectContaining({ name: 'quote.pdf' })])
   })
 })
+
+describe('HeroInputScreen trade picker', () => {
+  it('renders the trades it was given and sends the wire slug on click', async () => {
+    const onSelectType = vi.fn()
+    render(
+      <HeroInputScreen
+        description=""
+        onDescriptionChange={noop}
+        selectedType={null}
+        onSelectType={onSelectType}
+        onSubmit={noop}
+        trades={[
+          { trade: 'fencing', label: 'fencing' },
+          { trade: 'tiling', label: 'tiling' },
+          { trade: 'kitchen', label: 'kitchen fitting' },
+          { trade: 'retaining_wall', label: 'retaining wall' },
+          { trade: 'decking', label: 'decking' },
+          { trade: 'home_renovation', label: 'home renovation' },
+        ]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /^fencing$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^tiling$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^kitchen fitting$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^retaining wall$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^decking$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^home renovation$/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /^home renovation$/i }))
+    expect(onSelectType).toHaveBeenCalledWith({ trade: 'home_renovation', label: 'Home Renovation' })
+  })
+
+  it('does not name a single trade in the description placeholder', () => {
+    render(
+      <HeroInputScreen
+        description=""
+        onDescriptionChange={noop}
+        selectedType={null}
+        onSelectType={noop}
+        onSubmit={noop}
+      />,
+    )
+
+    const box = screen.getByLabelText(/describe your construction project/i)
+    expect(box).toHaveAttribute(
+      'placeholder',
+      'Describe the job — size, location and finish you\'re imagining...',
+    )
+    expect(box.getAttribute('placeholder')).not.toMatch(/deck|fence|til|kitchen/i)
+  })
+})

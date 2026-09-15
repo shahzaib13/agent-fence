@@ -250,7 +250,7 @@ export function InstantQuoteFlow({
                     {
                       id: quote.businessId,
                       name: quote.businessName,
-                      quote: buildAiSummaryQuote(quote, quoteSession.comparison ?? null, quoteSession.trade),
+                      quote: buildAiSummaryQuote(quote, quoteSession.comparison ?? null),
                     },
                   ]
                 : [],
@@ -373,7 +373,7 @@ export function InstantQuoteFlow({
                       </svg>
                     </span>
                     <span className="min-w-0 flex-1">
-                      <QuoteCard quote={quote} trade={quoteSession.trade} />
+                      <QuoteCard quote={quote} />
                     </span>
                   </label>
                 )

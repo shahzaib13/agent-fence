@@ -6,15 +6,17 @@
 // so a refresh mid-conversation loses nothing; Firestore holds it as well once there is a user
 // to attach it to, which is what makes it show up on their other devices. Signing in uploads
 // whatever was collected while they were still a guest.
-import type {
-  AlternativeOffer,
-  AnswerImage,
-  AnswerSource,
-  ChatOption,
-  ChecklistData,
-  ChecklistDisplay,
-  ComparisonSummary,
-  FencingChatResponse,
+import {
+  labelForClientTrade,
+  type AlternativeOffer,
+  type AnswerImage,
+  type AnswerSource,
+  type ChatOption,
+  type ChecklistData,
+  type ChecklistDisplay,
+  type ClientTrade,
+  type ComparisonSummary,
+  type FencingChatResponse,
 } from './fencingChat'
 import type { SuburbPlace } from './places'
 import { getDb } from './firebase'
@@ -34,6 +36,7 @@ export interface StoredMessage {
   options?: ChatOption[]
   answered?: ChatOption
   answeredField?: string
+  answeredTitle?: string
   isConfirmation?: boolean
   checklist?: ChecklistData | null
   expects?: 'suburb'
@@ -42,6 +45,7 @@ export interface StoredMessage {
   sources?: AnswerSource[]
   pickedBudget?: AnswerSource
   checklistDisplay?: ChecklistDisplay
+  isTradePicker?: boolean
 }
 
 export interface QuoteSession {
@@ -74,24 +78,16 @@ export interface QuoteSession {
   phone?: string
 }
 
-/** What the list shows for a session, without opening it. */
-export function quoteTitle(session: QuoteSession) {
-  const checklist = session.checklist ?? {}
-  const suburb = checklist.suburb
-  const trade = session.trade
+/** What the list shows for a session, without opening it. Words come from {@link PUBLISHED_CLIENT_TRADES}. */
+export function quoteTitle(session: QuoteSession, publishedTrades: ClientTrade[] = []) {
+  const suburbRaw = session.checklist?.suburb
+  const suburb = typeof suburbRaw === 'string' && suburbRaw.trim() ? suburbRaw.trim() : undefined
+  const trade = typeof session.trade === 'string' ? session.trade.trim() : ''
+  const tradeLabel = trade ? labelForClientTrade(trade, publishedTrades) : undefined
 
-  if (trade === 'tiling') {
-    const job = checklist.jobType ?? checklist.tileType
-    if (job && suburb) return `${String(job)} tiling, ${suburb}`
-    if (suburb) return `Tiling in ${suburb}`
-  }
-
-  const fenceLabel =
-    trade === 'fencing' || !trade
-      ? checklist.material ?? checklist.fenceType
-      : checklist.fenceType ?? checklist.material
-  if (fenceLabel && suburb) return `${String(fenceLabel)} fence, ${suburb}`
-  if (suburb) return trade ? `${trade} in ${suburb}` : `Fence in ${suburb}`
+  if (tradeLabel && suburb) return `${tradeLabel} in ${suburb}`
+  if (tradeLabel) return tradeLabel
+  if (suburb) return `Quote in ${suburb}`
   const firstAsk = session.messages.find((message) => message.role === 'user')?.text
   return firstAsk?.slice(0, 60) || 'New quote'
 }

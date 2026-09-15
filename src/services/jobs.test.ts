@@ -57,6 +57,7 @@ const lead: JobLead = {
   ],
   sessionId: 'sess-1',
   aiChatPdfUrl: 'https://storage/ai-conversation.pdf',
+  trade: 'fencing',
 }
 
 /** The document written into that collection — path and data. */
@@ -113,7 +114,7 @@ describe('submitJob', () => {
       status: 'accepted',
       jobType: 'fencing',
       category: 'Fencing',
-      title: 'Fence Installation',
+      title: 'Fencing',
       source: 'ai_agent',
       uid: lead.uid,
       fullName: 'Ayesha Khan',
@@ -131,16 +132,7 @@ describe('submitJob', () => {
     expect(written('jobs').data).toMatchObject({
       jobType: 'decking',
       category: 'Decking',
-      title: 'Decking Installation',
-    })
-  })
-
-  it('falls back to fencing when trade is missing or unknown', async () => {
-    await submitJob({ ...lead, trade: null })
-    expect(written('jobs').data).toMatchObject({
-      jobType: 'fencing',
-      category: 'Fencing',
-      title: 'Fence Installation',
+      title: 'Decking',
     })
 
     vi.clearAllMocks()
@@ -150,12 +142,72 @@ describe('submitJob', () => {
       if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: true }
       return undefined
     })
-    await submitJob({ ...lead, trade: 'plumbing' })
+    await submitJob({ ...lead, trade: 'tiling' })
     expect(written('jobs').data).toMatchObject({
-      jobType: 'fencing',
-      category: 'Fencing',
-      title: 'Fence Installation',
+      jobType: 'tiling',
+      category: 'Tiling',
+      title: 'Tiling',
     })
+
+    vi.clearAllMocks()
+    exists.mockImplementation((path) => path.startsWith('businesses/biz-'))
+    businessData.mockImplementation((path) => {
+      if (path === 'businesses/biz-1') return { isAiAutoAcceptEnabled: false }
+      if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: true }
+      return undefined
+    })
+    await submitJob({ ...lead, trade: 'kitchen' })
+    expect(written('jobs').data).toMatchObject({
+      jobType: 'kitchen',
+      category: 'Kitchen Fitting',
+      title: 'Kitchen Fitting',
+    })
+
+    vi.clearAllMocks()
+    exists.mockImplementation((path) => path.startsWith('businesses/biz-'))
+    businessData.mockImplementation((path) => {
+      if (path === 'businesses/biz-1') return { isAiAutoAcceptEnabled: false }
+      if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: true }
+      return undefined
+    })
+    await submitJob({ ...lead, trade: 'retaining_wall' })
+    expect(written('jobs').data).toMatchObject({
+      jobType: 'retaining_wall',
+      category: 'Retaining Wall',
+      title: 'Retaining Wall',
+    })
+
+    vi.clearAllMocks()
+    exists.mockImplementation((path) => path.startsWith('businesses/biz-'))
+    businessData.mockImplementation((path) => {
+      if (path === 'businesses/biz-1') return { isAiAutoAcceptEnabled: false }
+      if (path === 'businesses/biz-2') return { isAiAutoAcceptEnabled: true }
+      return undefined
+    })
+    await submitJob({ ...lead, trade: 'retaining-wall' })
+    expect(written('jobs').data).toMatchObject({
+      jobType: 'retaining-wall',
+      category: 'Retaining Wall',
+      title: 'Retaining Wall',
+    })
+  })
+
+  it('does not post a fencing job when trade is missing', async () => {
+    await expect(submitJob({ ...lead, trade: null })).rejects.toThrow(/never locked a trade/i)
+    expect(set).not.toHaveBeenCalled()
+    expect(commit).not.toHaveBeenCalled()
+  })
+
+  it('posts an unpublished trade as-is instead of refusing or rewriting it as fencing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    await submitJob({ ...lead, trade: 'solar' })
+    expect(written('jobs').data).toMatchObject({
+      jobType: 'solar',
+      category: 'solar',
+      title: 'solar',
+    })
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/solar/))
+    warn.mockRestore()
   })
 
   it('gives the job the geo types the businesses\' nearby search needs', async () => {
@@ -275,7 +327,7 @@ describe('submitJob', () => {
     expect(copy).toMatchObject({
       type: 'job',
       jobType: 'fencing',
-      title: 'Fence Installation',
+      title: 'Fencing',
       fullName: 'Ayesha Khan',
       phone: '923029447610',
       location: 'Pakenham, VIC 3810',

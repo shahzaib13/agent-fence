@@ -1,12 +1,16 @@
-import { rateUnitSuffix, type ComparisonQuote } from '../services/fencingChat'
+import { formatQuoteRate, type ComparisonQuote } from '../services/fencingChat'
 
 // One ranked business. Lives on its own because two places render it now: the results page
 // and the Instant Quote modal. The business name stays hidden in both — the client only
 // learns who they picked once the lead is filed and they land on the partner site.
-export function QuoteCard({ quote, trade }: { quote: ComparisonQuote; trade?: string | null }) {
+export function QuoteCard({ quote }: { quote: ComparisonQuote }) {
   const isBestValue = quote.tag === 'BEST_VALUE'
   const hasSavings = quote.savingsFromAverage != null && quote.savingsFromAverage > 0
   const savingsLabel = hasSavings ? `Saves $${quote.savingsFromAverage!.toLocaleString()} from avg.` : 'At local average'
+  const rateLabel = formatQuoteRate(quote)
+  const notes = quote.notes?.trim() ?? ''
+  const detail = rateLabel ? `${rateLabel} rate` : notes || null
+  const badges = !rateLabel && notes ? quote.badges.filter((badge) => badge !== notes) : quote.badges
 
   return (
     <div
@@ -38,15 +42,13 @@ export function QuoteCard({ quote, trade }: { quote: ComparisonQuote; trade?: st
             {quote.businessName}
           </p>
           <span className="sr-only">Business name hidden</span>
-          <p className="text-base leading-6 text-[#6B7280]">
-            {`$${quote.ratePerMeter}${rateUnitSuffix(trade)} rate`}
-          </p>
-          {quote.badges.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3 pt-1 sm:gap-4">
-              {quote.badges.map((badge) => (
+          {detail && <p className="text-base leading-6 text-[#6B7280]">{detail}</p>}
+          {badges.length > 0 && (
+            <div className="flex flex-wrap items-start gap-3 pt-1 sm:gap-4">
+              {badges.map((badge) => (
                 <span
                   key={badge}
-                  className={`flex items-center gap-1.5 text-sm font-medium ${
+                  className={`flex min-w-0 max-w-full items-start gap-1.5 text-sm leading-snug font-medium ${
                     isBestValue ? 'text-[#047857]' : 'text-[#062D27]'
                   }`}
                 >
@@ -55,11 +57,11 @@ export function QuoteCard({ quote, trade }: { quote: ComparisonQuote; trade?: st
                     fill="none"
                     stroke={isBestValue ? '#047857' : '#9CA3AF'}
                     strokeWidth={2.5}
-                    className="h-4 w-4 shrink-0"
+                    className="mt-0.5 h-4 w-4 shrink-0"
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                   </svg>
-                  {badge}
+                  <span className="min-w-0 break-words">{badge}</span>
                 </span>
               ))}
             </div>

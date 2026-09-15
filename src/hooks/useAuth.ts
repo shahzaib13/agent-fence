@@ -10,6 +10,9 @@ export interface SignedInUser {
   phone: string
 }
 
+/** Give Firebase this long to restore a session, then stop blocking Quotes / Sign in. */
+export const AUTH_RESTORE_MS = 5_000
+
 /**
  * Who is signed in, straight from Firebase rather than from whatever the last OTP returned.
  * That distinction is the whole point: the SDK persists the session in IndexedDB by itself, so
@@ -25,19 +28,32 @@ export function useAuth() {
   useEffect(() => {
     let unsubscribe: (() => void) | undefined
     let cancelled = false
+    const timeout = window.setTimeout(() => {
+      if (cancelled) return
+      setIsLoading(false)
+    }, AUTH_RESTORE_MS)
 
     void (async () => {
-      const [{ onAuthStateChanged }, auth] = await Promise.all([import('firebase/auth'), getAuthClient()])
-      if (cancelled) return
-      unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-        const phoneE164 = firebaseUser?.phoneNumber ?? ''
-        setUser(firebaseUser ? { uid: firebaseUser.uid, phoneE164, phone: phoneE164.replace(/\D/g, '') } : null)
-        setIsLoading(false)
-      })
+      try {
+        const [{ onAuthStateChanged }, auth] = await Promise.all([import('firebase/auth'), getAuthClient()])
+        if (cancelled) return
+        unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+          const phoneE164 = firebaseUser?.phoneNumber ?? ''
+          setUser(firebaseUser ? { uid: firebaseUser.uid, phoneE164, phone: phoneE164.replace(/\D/g, '') } : null)
+          setIsLoading(false)
+        })
+      } catch (error) {
+        console.error('[auth] Failed to restore session', error)
+        if (!cancelled) {
+          setUser(null)
+          setIsLoading(false)
+        }
+      }
     })()
 
     return () => {
       cancelled = true
+      window.clearTimeout(timeout)
       unsubscribe?.()
     }
   }, [])

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { stubClientTrades } from './client-trades'
 
 // The picker talks to Google through the Maps JS SDK, so what gets faked here is the SDK
 // itself — installed before any app code runs, which also stops the real script being fetched.
@@ -58,6 +59,7 @@ const placesCalls = (page: Page) =>
 
 async function startAtSuburbQuestion(page: Page) {
   await stubGoogleSdk(page)
+  await stubClientTrades(page)
 
   const chatBodies: string[] = []
   let call = 0

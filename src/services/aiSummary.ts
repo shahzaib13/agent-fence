@@ -1,6 +1,6 @@
-import { rateUnitSuffix, type ComparisonQuote, type ComparisonSummary } from './fencingChat'
+import { formatQuoteRate, type ComparisonQuote, type ComparisonSummary } from './fencingChat'
 import type { QuoteSession } from './quotes'
-import { BRIEF_HIDDEN_KEYS, checklistFieldLabel, formatChecklistValue } from '../utils/checklist'
+import { BRIEF_HIDDEN_KEYS } from '../utils/checklist'
 
 export interface AiSummaryBriefRow {
   label: string
@@ -51,14 +51,16 @@ function withoutNullish<T>(value: T): T {
 
 export function buildAiSummary(session: QuoteSession): Omit<AiSummary, 'quote'> {
   const brief: AiSummaryBriefRow[] = []
-  for (const [field, value] of Object.entries(session.checklist ?? {})) {
-    if (BRIEF_HIDDEN_KEYS.has(field)) continue
-    if (value === null || value === undefined || value === '') continue
-    if (typeof value === 'object' && !Array.isArray(value)) continue
-    brief.push({
-      label: checklistFieldLabel(field),
-      value: String(formatChecklistValue(field, value)),
-    })
+  if (session.checklistAnswered?.length) {
+    for (const item of session.checklistAnswered) {
+      if (!item.value.trim()) continue
+      brief.push({ label: item.title, value: item.value })
+    }
+  } else if (session.checklistDisplay) {
+    for (const [field, row] of Object.entries(session.checklistDisplay)) {
+      if (BRIEF_HIDDEN_KEYS.has(field) || !row.value.trim()) continue
+      brief.push({ label: row.title, value: row.value })
+    }
   }
 
   return withoutNullish({
@@ -76,7 +78,6 @@ export function buildAiSummary(session: QuoteSession): Omit<AiSummary, 'quote'> 
 export function buildAiSummaryQuote(
   quote: ComparisonQuote,
   comparison: ComparisonSummary | null,
-  trade?: string | null,
 ): AiSummaryQuote {
   const projectTotal =
     quote.projectTotalMin === quote.projectTotalMax
@@ -85,7 +86,7 @@ export function buildAiSummaryQuote(
 
   return withoutNullish({
     businessName: quote.businessName,
-    rate: `$${quote.ratePerMeter}${rateUnitSuffix(trade)}`,
+    rate: formatQuoteRate(quote) ?? undefined,
     projectTotal,
     ...(quote.savingsFromAverage != null && quote.savingsFromAverage > 0
       ? { savings: `$${quote.savingsFromAverage.toLocaleString()}` }

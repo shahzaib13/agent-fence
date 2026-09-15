@@ -88,6 +88,8 @@ function fencingChatErrorFromBody(data: FencingChatErrorBody, status?: number): 
  * text box instead of sending this value anywhere.
  */
 export const OTHER_OPTION_VALUE = '__other__'
+/** Page-2 (and later) of a long option list. Render as a normal chip — not a text box. */
+export const MORE_OPTION_VALUE = '__more__'
 
 export interface ChatOption {
   label: string
@@ -174,6 +176,9 @@ export function budgetSources(sources: AnswerSource[] | undefined): Array<Answer
 export type ChecklistValue = string | number | boolean | null | string[] | Record<string, unknown>
 export type ChecklistData = Record<string, ChecklistValue>
 
+/** How `ratePerMeter` should be printed. Kitchen is a whole-job price (`item`), not a length rate. */
+export type RateUnit = 'm' | 'm2' | 'item'
+
 export interface WorkerMatch {
   // Firestore uid of the business. Optional only so an older payload degrades to a
   // results page you can look at but not hand your details to.
@@ -185,6 +190,10 @@ export interface WorkerMatch {
   ratePerMeter: number
   estimatedTotal: number
   notes: string
+  /** Exclusion / inclusion lines. When present, these are the card badges — not suburb+notes. */
+  badges?: string[]
+  /** How to print `ratePerMeter`. Absent means no per-unit line. */
+  unit?: RateUnit
 }
 
 export interface ComparisonQuote {
@@ -203,6 +212,10 @@ export interface ComparisonQuote {
   savingsFromAverage: number | null
   /** Optional workmanship warranty line from the backend. */
   warranty?: string | null
+  /** How to print `ratePerMeter`. Absent means no per-unit line. */
+  unit?: RateUnit
+  /** Worker-match notes — shown on the card when there is no per-metre rate to print. */
+  notes?: string
 }
 
 export interface ComparisonSummary {
@@ -239,9 +252,26 @@ export function alternativeOfferLabel(offer: AlternativeOffer): string {
   return [offer.materialLabel, offer.heightKey].filter((part) => typeof part === 'string' && part.trim()).join(', ')
 }
 
-/** `ratePerMeter` keeps its name for every trade; only the printed unit changes. */
-export function rateUnitSuffix(trade?: string | null): string {
-  return trade === 'tiling' ? '/m²' : '/m'
+/**
+ * How to print `ratePerMeter`. Only the server's `unit` counts — never infer from the trade slug.
+ * `m` is a linear metre (fencing, retaining wall). `m2` is area (tiling, decking). `item` (and
+ * anything unrecognised, including null) means no per-unit line.
+ */
+export function parseRateUnit(value: unknown): RateUnit | undefined {
+  return value === 'm' || value === 'm2' || value === 'item' ? value : undefined
+}
+
+export function rateUnitSuffix(unit?: string | null): string {
+  if (unit === 'm2') return '/m²'
+  if (unit === 'm') return '/m'
+  return ''
+}
+
+/** Per-unit line for a card, or null when the figure is a whole-job price. */
+export function formatQuoteRate(quote?: { ratePerMeter: number; unit?: string | null }): string | null {
+  if (!quote) return null
+  const suffix = rateUnitSuffix(quote.unit)
+  return suffix ? `$${quote.ratePerMeter}${suffix}` : null
 }
 
 export interface FencingChatResponse {
@@ -263,8 +293,10 @@ export interface FencingChatResponse {
   checklistAnswered?: import('./voice').ChecklistAnsweredItem[]
   checklistPending?: import('./voice').ChecklistPendingItem[]
   checklistComplete?: boolean
-  /** Null only on the "Fencing or Tiling?" turn — do not assume a string. */
+  /** Null only on the "which trade?" turn — do not assume a string. */
   trade?: string | null
+  /** How to print rates on this turn. Null on the trade-picker turn, where QuoteCard is not mounted. */
+  unit?: RateUnit | null
   place?: SuburbPlace | null
   noMatchReason?: string
   alternatives?: AlternativeOffer[]
@@ -275,13 +307,87 @@ export interface FencingChatResponse {
 }
 
 const CLIENT_CHAT_PATH = '/api/v1/client/chat'
+const CLIENT_TRADES_PATH = '/api/v1/client/trades'
 const CLIENT_CHAT_PATH_RE = /\/api\/v1\/client\/(fencing-chat|chat)$/
 
+export interface ClientTrade {
+  trade: string
+  label: string
+}
+
 /**
- * QuoteMy client chat (fencing + tiling). Prefer `VITE_FENCING_CHAT_URL` (full endpoint),
- * otherwise `{VITE_QUOTEMY_API_BASE_URL}/api/v1/client/chat`. `VITE_FENCING_CHAT_WEBHOOK_URL`
- * is still accepted as an alias so existing env files keep working. The old
- * `/fencing-chat` path still answers identically if an explicit URL points there.
+ * Homepage / Quotes trade chips and labels — kept on the client so the picker never
+ * flashes empty while (or if) GET /client/trades fails. Update here when a trade ships.
+ */
+export const PUBLISHED_CLIENT_TRADES: ClientTrade[] = [
+  { trade: 'fencing', label: 'fencing' },
+  { trade: 'tiling', label: 'tiling' },
+  { trade: 'kitchen', label: 'kitchen fitting' },
+  { trade: 'retaining_wall', label: 'retaining wall' },
+  { trade: 'decking', label: 'decking' },
+  { trade: 'home_renovation', label: 'home renovation' },
+]
+
+/** Chip text for a published trade. The wire label is lowercase; the button is not. */
+export function clientTradeChipLabel(label: string) {
+  return label
+    .trim()
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ')
+}
+
+/** Words for a slug from the published trade list — prefer {@link PUBLISHED_CLIENT_TRADES}. */
+export function labelForClientTrade(trade: string, trades: ClientTrade[]): string | undefined {
+  const exact = trades.find((item) => item.trade === trade)
+  if (exact) return clientTradeChipLabel(exact.label)
+  // Older sessions stored the hyphen; the published slug is the underscore form.
+  if (trade === 'retaining-wall') {
+    const wall = trades.find((item) => item.trade === 'retaining_wall')
+    if (wall) return clientTradeChipLabel(wall.label)
+  }
+  return undefined
+}
+
+function parseClientTrades(payload: unknown): ClientTrade[] {
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)
+      ? (payload as { data: unknown[] }).data
+      : []
+  const trades: ClientTrade[] = []
+  for (const entry of rows) {
+    if (!entry || typeof entry !== 'object') continue
+    const row = entry as { trade?: unknown; label?: unknown }
+    const trade = typeof row.trade === 'string' ? row.trade.trim() : ''
+    if (!trade) continue
+    const label = typeof row.label === 'string' && row.label.trim() ? row.label.trim() : trade
+    trades.push({ trade, label })
+  }
+  return trades
+}
+
+/**
+ * Optional remote list (same shape as {@link PUBLISHED_CLIENT_TRADES}). The UI uses the
+ * frontend constant; this remains for callers that want to compare against the API.
+ */
+export async function fetchClientTrades(): Promise<ClientTrade[]> {
+  const base = quoteMyApiBase()
+  if (!base) return []
+  try {
+    const { data } = await api.get<unknown>(`${base}${CLIENT_TRADES_PATH}`)
+    return parseClientTrades(data)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * QuoteMy client chat (whatever GET /client/trades currently publishes). Prefer `VITE_FENCING_CHAT_URL`
+ * (full endpoint), otherwise `{VITE_QUOTEMY_API_BASE_URL}/api/v1/client/chat`.
+ * `VITE_FENCING_CHAT_WEBHOOK_URL` is still accepted as an alias so existing env files keep
+ * working. The old `/fencing-chat` path still answers identically if an explicit URL points there.
  */
 function fencingChatUrl(): string {
   const explicit =
@@ -339,7 +445,7 @@ export function resultIdFromMetadata(data: unknown): string | undefined {
   return nested?.resultId
 }
 
-/** Carried across turns — `knownChecklist` and `place` always go; `trade` only when locked. */
+/** Carried across turns — `knownChecklist` and `place` always go; `trade` only on the first request. */
 export interface SessionContext {
   knownChecklist?: ChecklistData | null
   place?: SuburbPlace | null

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { ChecklistAnsweredItem, ChecklistPendingItem } from '../services/voice'
-import { ChecklistAnsweredRows } from './ChecklistRows'
+import type { ChecklistDisplay } from '../services/fencingChat'
+import { ChecklistAnsweredRows, ChecklistDisplayRows } from './ChecklistRows'
 
 function BriefRow({ done, children }: { done: boolean; children: ReactNode }) {
   return (
@@ -27,18 +28,25 @@ function BriefRow({ done, children }: { done: boolean; children: ReactNode }) {
 
 export function ChecklistPanel({
   checklistAnswered,
+  checklistDisplay,
   checklistPending,
 }: {
   checklistAnswered?: ChecklistAnsweredItem[]
+  checklistDisplay?: ChecklistDisplay | null
   checklistPending?: ChecklistPendingItem[]
 }) {
   const hasAnswered = !!checklistAnswered?.length
+  const hasDisplay = !!checklistDisplay && Object.keys(checklistDisplay).length > 0
   const hasPending = !!checklistPending?.length
 
   return (
     <aside className="hidden flex-col gap-7 overflow-y-auto border-l border-gray-200 bg-[#EFF4F2] px-8 py-10 lg:flex">
       <p className="text-[11px] font-bold tracking-widest text-gray-500 uppercase">Building your brief</p>
-      {hasAnswered && <ChecklistAnsweredRows answered={checklistAnswered} />}
+      {hasAnswered && checklistAnswered ? (
+        <ChecklistAnsweredRows answered={checklistAnswered} />
+      ) : hasDisplay && checklistDisplay ? (
+        <ChecklistDisplayRows display={checklistDisplay} />
+      ) : null}
       {hasPending && (
         <ul className="flex flex-col gap-4">
           {checklistPending.map((item) => (
@@ -48,7 +56,7 @@ export function ChecklistPanel({
           ))}
         </ul>
       )}
-      {!hasAnswered && !hasPending && (
+      {!hasAnswered && !hasDisplay && !hasPending && (
         <p className="text-sm text-gray-500">We'll track your project details here as you answer.</p>
       )}
       <p className="mt-auto border-t border-gray-300/60 pt-6 text-xs leading-relaxed text-gray-500">

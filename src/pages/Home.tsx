@@ -10,6 +10,7 @@ import { useVoiceCall } from '../hooks/useVoiceCall'
 import {
   FENCING_CHAT_FALLBACK_MESSAGE,
   FencingChatError,
+  PUBLISHED_CLIENT_TRADES,
   sendFencingChatMessage,
   type AnswerSource,
   type ChatOption,
@@ -19,6 +20,7 @@ import {
   type FencingChatResponse,
   parseAnswerImages,
   parseAnswerSources,
+  parseRateUnit,
 } from '../services/fencingChat'
 import { isPlacesConfigured, newSessionToken, searchSuburbs, suburbSearchQuery, type SuburbPlace } from '../services/places'
 import { isQuoteResultReady, fetchQuoteResult, listenQuoteResult, type QuoteResultDoc } from '../services/quoteResults'
@@ -30,8 +32,8 @@ import {
   checklistAnsweredFromDisplay,
   checklistDisplayFromAnswered,
 } from '../utils/checklistAnswered'
-import { diffFilledField } from '../utils/checklist'
-import { workerMatchesToComparison } from '../utils/comparison'
+import { collapsedChipTitle, diffFilledField } from '../utils/checklist'
+import { applyRateUnit, workerMatchesToComparison } from '../utils/comparison'
 import { generateId } from '../utils/id'
 import { mergeVoiceTurns, voiceModeOffDivider, voiceModeOnDivider } from '../utils/voiceMessages'
 
@@ -41,15 +43,7 @@ import { mergeVoiceTurns, voiceModeOffDivider, voiceModeOnDivider } from '../uti
 // state rather than off a stage.
 type Stage = 'hero' | 'chat' | 'thinking'
 
-// What a homepage chip locks the backend onto. Chips not listed here still go to chat;
-// the workflow reads the description and picks the trade itself.
-const CHIP_TRADE: Record<string, string> = {
-  Fence: 'fencing',
-  Deck: 'decking',
-  'Retaining Wall': 'retaining-wall',
-  Tiling: 'tiling',
-}
-const KNOWN_TRADES = new Set(Object.values(CHIP_TRADE))
+// Homepage chips are {@link PUBLISHED_CLIENT_TRADES} — always on the client so the picker never waits on the API.
 
 // A turn that is asking where the job is. The workflow says so with `expects`, but the client
 // does not depend on it getting that right: a suburb typed as free text silently matches zero
@@ -71,6 +65,7 @@ function toStoredMessages(thread: ChatMessage[]) {
       options,
       answered,
       answeredField,
+      answeredTitle,
       isConfirmation,
       checklist: turnChecklist,
       expects,
@@ -79,6 +74,7 @@ function toStoredMessages(thread: ChatMessage[]) {
       sources,
       pickedBudget,
       checklistDisplay: turnDisplay,
+      isTradePicker,
     }) => ({
       id,
       role,
@@ -88,6 +84,7 @@ function toStoredMessages(thread: ChatMessage[]) {
       options,
       answered,
       answeredField,
+      answeredTitle,
       isConfirmation,
       checklist: turnChecklist,
       expects,
@@ -96,6 +93,7 @@ function toStoredMessages(thread: ChatMessage[]) {
       sources,
       pickedBudget,
       checklistDisplay: turnDisplay ?? undefined,
+      isTradePicker,
     }),
   )
 }
@@ -103,8 +101,10 @@ function toStoredMessages(thread: ChatMessage[]) {
 function applyChecklistAnsweredState(
   answered: ChecklistAnsweredItem[] | undefined,
   setAnswered: (value: ChecklistAnsweredItem[]) => void,
+  replaceEmpty = false,
 ) {
-  if (answered === undefined || answered.length === 0) return
+  if (answered === undefined) return
+  if (!replaceEmpty && answered.length === 0) return
   setAnswered(answered)
 }
 
@@ -289,8 +289,9 @@ export function Home({
   }, [view])
 
   const applyQuoteResultDoc = useCallback((doc: QuoteResultDoc) => {
-    if (doc.comparison) setComparison(doc.comparison)
-    else if (doc.results) setComparison(workerMatchesToComparison(doc.results))
+    const unit = parseRateUnit(doc.unit)
+    if (doc.comparison) setComparison(applyRateUnit(doc.comparison, unit))
+    else if (doc.results) setComparison(workerMatchesToComparison(doc.results, unit))
     if (doc.message) setResultMessage(doc.message)
     if (doc.noMatchReason !== undefined) setNoMatchReason(doc.noMatchReason)
     if (doc.place !== undefined) setPlace(doc.place ?? null)
@@ -300,8 +301,9 @@ export function Home({
 
   const intentRef = useRef(intent)
   intentRef.current = intent
-  const tradeRef = useRef(trade)
-  tradeRef.current = trade
+  // After the first successful turn, `knownChecklist._ui.trade` owns the lock — repeating
+  // the landing-page slug would beat a customer trade-change.
+  const sentTradeRef = useRef(!!initialSession)
   const stopVoiceRef = useRef<() => void>(() => {})
 
   const applyVoiceSessionState = useCallback((session: VoiceSession) => {
@@ -349,26 +351,24 @@ export function Home({
 
   const applyTurn = useCallback(
     (response: FencingChatResponse, previousChecklist: ChecklistData | null, answeredId: string | null) => {
-      // The server's place always wins — sending last turn's picker object after the customer
-      // moved suburb is what reopens the suburb question.
-      setPlace(response.place ?? null)
+      // The server's place always wins when it sends one. Omitting `place` (a covered suburb
+      // with no live prices, for example) must not wipe the one we already have — that is how
+      // a follow-up turn re-asks a suburb that cannot help.
+      if (response.place !== undefined) setPlace(response.place)
 
       const hasQuoteToBeat = Number(response.checklist?.existingPrice) > 0
       if (response.intent && (!intentRef.current || (response.intent === 'compare_quote' && hasQuoteToBeat))) {
         setIntent(response.intent)
       }
-      if (
-        !tradeRef.current &&
-        typeof response.trade === 'string' &&
-        response.trade.trim() &&
-        KNOWN_TRADES.has(response.trade)
-      ) {
-        setTrade(response.trade)
+      if (response.trade === null) {
+        setTrade(null)
+      } else if (typeof response.trade === 'string' && response.trade.trim()) {
+        setTrade(response.trade.trim())
       }
-      if (response.checklist) setChecklist(response.checklist)
-      if (response.checklistDisplay) setChecklistDisplay(response.checklistDisplay)
-      applyChecklistAnsweredState(response.checklistAnswered, setChecklistAnswered)
-      if (response.checklistPending) setChecklistPending(response.checklistPending)
+      if (response.checklist !== undefined) setChecklist(response.checklist)
+      if (response.checklistDisplay !== undefined) setChecklistDisplay(response.checklistDisplay)
+      applyChecklistAnsweredState(response.checklistAnswered, setChecklistAnswered, true)
+      if (response.checklistPending !== undefined) setChecklistPending(response.checklistPending)
       setChecklistComplete(response.checklistComplete ?? false)
       if (response.resultId) {
         shouldAutoShowResult.current = true
@@ -378,18 +378,28 @@ export function Home({
       setResponseOptions(response.options ?? [])
       setLastResponseType(response.type)
 
-      const filledField = diffFilledField(previousChecklist, response.checklist)
-      const labelAnswer = (previous: ChatMessage[]) =>
-        answeredId && filledField
-          ? previous.map((m) => (m.id === answeredId ? { ...m, answeredField: filledField } : m))
-          : previous
+      const filledField =
+        response.trade === null
+          ? undefined
+          : diffFilledField(previousChecklist, response.checklist)
+      const answeredTitle = collapsedChipTitle(filledField, response.checklistAnswered, response.checklistDisplay)
+      const labelAnswer = (previous: ChatMessage[]) => {
+        const answeredTurn = answeredId ? previous.find((message) => message.id === answeredId) : undefined
+        if (!answeredId || !filledField || answeredTurn?.isTradePicker) return previous
+        return previous.map((m) =>
+          m.id === answeredId ? { ...m, answeredField: filledField, answeredTitle } : m,
+        )
+      }
 
       const isResultPage =
         (response.intent === 'compare_quote' && !!response.comparison) || response.type === 'result'
       if (isResultPage) {
         stopVoiceRef.current()
         shouldAutoShowResult.current = true
-        setComparison(response.comparison ?? workerMatchesToComparison(response.results ?? []))
+        const unit = parseRateUnit(response.unit)
+        setComparison(
+          applyRateUnit(response.comparison ?? workerMatchesToComparison(response.results ?? [], unit), unit),
+        )
         setResultMessage(response.message)
         setView('result')
         return
@@ -405,6 +415,7 @@ export function Home({
         checklist: response.checklist ?? previousChecklist,
         checklistDisplay: response.checklistDisplay,
         isConfirmation: response.type === 'confirmation',
+        isTradePicker: response.trade === null,
         expects: expectsSuburb ? ('suburb' as const) : undefined,
         alternatives: response.alternatives,
         images: parseAnswerImages(response.answer?.images),
@@ -604,11 +615,13 @@ export function Home({
     try {
       // Checklist goes back exactly as the API gave it — including `_ui`. Never rebuild or
       // null fields out; that is what breaks "more options" paging and re-asks answered questions.
+      // `trade` only on the first request of this session: later the lock lives in `_ui.trade`.
       const response = await sendFencingChatMessage(apiText, sessionId, quoteFiles, {
         knownChecklist: previousChecklist,
         place: confirmedPlace ?? place,
-        trade,
+        ...(sentTradeRef.current ? {} : { trade }),
       })
+      sentTradeRef.current = true
       applyTurn(response, previousChecklist, answeredId)
       return response
     } catch (error) {
@@ -701,7 +714,7 @@ export function Home({
     commitMessages((previous) =>
       previous.map((m) =>
         m.id === messageId
-          ? { ...m, answered: { label: selected.displayLabel, value: selected.displayLabel }, answeredField: 'suburb' }
+          ? { ...m, answered: { label: selected.displayLabel, value: selected.displayLabel }, answeredField: 'suburb', answeredTitle: 'Suburb' }
           : m,
       ),
     )
@@ -843,6 +856,7 @@ export function Home({
     commitMessages([])
     setIntent(undefined)
     setTrade(null)
+    sentTradeRef.current = false
     setLastFailedText(null)
     setLastFailedFiles(null)
     setComparison(null)
@@ -940,7 +954,11 @@ export function Home({
             onStartVoice={showVoice && !voiceBusy ? handleStartVoice : undefined}
             onHangUp={isVoiceActive ? stopVoice : undefined}
           />
-          <ChecklistPanel checklistAnswered={checklistAnswered} checklistPending={checklistPending} />
+          <ChecklistPanel
+            checklistAnswered={checklistAnswered}
+            checklistDisplay={checklistDisplay}
+            checklistPending={checklistPending}
+          />
         </div>
       </div>
     )
@@ -953,6 +971,8 @@ export function Home({
         <ThinkingScreen
           description={description}
           checklist={checklist}
+          checklistAnswered={checklistAnswered}
+          checklistDisplay={checklistDisplay}
           checklistComplete={checklistComplete}
           awaitingResult
           intent={intent}
@@ -972,14 +992,15 @@ export function Home({
           description={description}
           onDescriptionChange={setDescription}
           selectedType={selectedType}
-          onSelectType={(type) => {
+          trades={PUBLISHED_CLIENT_TRADES}
+          onSelectType={(chip) => {
             setDescription((d) => {
               const isEmpty = !d.trim()
               const matchesPriorPrefill = selectedType !== null && d === buildPrefill(selectedType)
-              return isEmpty || matchesPriorPrefill ? buildPrefill(type) : d
+              return isEmpty || matchesPriorPrefill ? buildPrefill(chip.label) : d
             })
-            setSelectedType(type)
-            setTrade(CHIP_TRADE[type] ?? null)
+            setSelectedType(chip.label)
+            setTrade(chip.trade)
           }}
           onSubmit={handleHeroSubmit}
           onStartVoice={showVoice ? handleStartVoice : undefined}

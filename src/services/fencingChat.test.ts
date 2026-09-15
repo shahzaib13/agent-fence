@@ -6,23 +6,31 @@ import {
   FencingChatError,
   alternativeOfferLabel,
   budgetSources,
+  clientTradeChipLabel,
+  fetchClientTrades,
+  labelForClientTrade,
+  PUBLISHED_CLIENT_TRADES,
   fencingChatFromMetadata,
   parseAnswerImages,
   parseAnswerSources,
+  parseRateUnit,
   rateUnitSuffix,
+  formatQuoteRate,
   resultIdFromMetadata,
   serialiseKnownChecklist,
   sendFencingChatMessage,
 } from './fencingChat'
 
 vi.mock('./api', () => ({
-  api: { post: vi.fn() },
+  api: { post: vi.fn(), get: vi.fn() },
 }))
 
 const mockedPost = vi.mocked(api.post)
+const mockedGet = vi.mocked(api.get)
 
 beforeEach(() => {
   vi.stubEnv('VITE_FENCING_CHAT_URL', 'https://api.example.test/api/v1/client/fencing-chat')
+  mockedGet.mockReset()
 })
 
 const ok = {
@@ -273,6 +281,93 @@ describe('sendFencingChatMessage', () => {
   })
 })
 
+describe('PUBLISHED_CLIENT_TRADES', () => {
+  it('lists the six live trades the homepage chips render', () => {
+    expect(PUBLISHED_CLIENT_TRADES.map((item) => item.trade)).toEqual([
+      'fencing',
+      'tiling',
+      'kitchen',
+      'retaining_wall',
+      'decking',
+      'home_renovation',
+    ])
+  })
+})
+
+describe('fetchClientTrades', () => {
+  const published = [
+    { trade: 'fencing', label: 'fencing' },
+    { trade: 'tiling', label: 'tiling' },
+    { trade: 'kitchen', label: 'kitchen fitting' },
+    { trade: 'retaining_wall', label: 'retaining wall' },
+    { trade: 'decking', label: 'decking' },
+    { trade: 'home_renovation', label: 'home renovation' },
+  ]
+
+  it('reads the published list from GET /client/trades', async () => {
+    mockedGet.mockResolvedValueOnce({ data: { ok: true, data: published } })
+
+    await expect(fetchClientTrades()).resolves.toEqual(published)
+    expect(mockedGet).toHaveBeenCalledWith('https://api.example.test/api/v1/client/trades')
+  })
+
+  it('keeps the retaining_wall slug exactly, underscore and all', async () => {
+    mockedGet.mockResolvedValueOnce({ data: { ok: true, data: published } })
+    const trades = await fetchClientTrades()
+    expect(trades.map((item) => item.trade)).toEqual([
+      'fencing',
+      'tiling',
+      'kitchen',
+      'retaining_wall',
+      'decking',
+      'home_renovation',
+    ])
+    expect(trades.some((item) => item.trade === 'retaining-wall' || item.trade === 'retainingWall')).toBe(false)
+  })
+
+  it('returns an empty list when the endpoint is down', async () => {
+    mockedGet.mockRejectedValueOnce(new Error('network'))
+    await expect(fetchClientTrades()).resolves.toEqual([])
+  })
+})
+
+describe('clientTradeChipLabel', () => {
+  it('title-cases the wire label for the picker', () => {
+    expect(clientTradeChipLabel('fencing')).toBe('Fencing')
+    expect(clientTradeChipLabel('kitchen fitting')).toBe('Kitchen Fitting')
+    expect(clientTradeChipLabel('retaining wall')).toBe('Retaining Wall')
+    expect(clientTradeChipLabel('decking')).toBe('Decking')
+    expect(clientTradeChipLabel('home renovation')).toBe('Home Renovation')
+  })
+})
+
+describe('labelForClientTrade', () => {
+  const published = [
+    { trade: 'fencing', label: 'fencing' },
+    { trade: 'tiling', label: 'tiling' },
+    { trade: 'kitchen', label: 'kitchen fitting' },
+    { trade: 'retaining_wall', label: 'retaining wall' },
+    { trade: 'decking', label: 'decking' },
+    { trade: 'home_renovation', label: 'home renovation' },
+  ]
+
+  it('returns the published chip label, never a local kitchen→Kitchen map', () => {
+    expect(labelForClientTrade('kitchen', published)).toBe('Kitchen Fitting')
+    expect(labelForClientTrade('fencing', published)).toBe('Fencing')
+    expect(labelForClientTrade('retaining_wall', published)).toBe('Retaining Wall')
+    expect(labelForClientTrade('home_renovation', published)).toBe('Home Renovation')
+  })
+
+  it('resolves the older hyphen slug to the published retaining_wall label', () => {
+    expect(labelForClientTrade('retaining-wall', published)).toBe('Retaining Wall')
+  })
+
+  it('returns nothing for a slug the list does not carry, so callers cannot invent words', () => {
+    expect(labelForClientTrade('solar', published)).toBeUndefined()
+    expect(labelForClientTrade('kitchen', [])).toBeUndefined()
+  })
+})
+
 describe('voice metadata helpers', () => {
   it('unwraps a fencing-chat payload from Retell metadata', () => {
     const payload = { ...ok, type: 'question' as const, expects: 'suburb' as const }
@@ -371,11 +466,31 @@ describe('budgetSources', () => {
 })
 
 describe('rateUnitSuffix', () => {
-  it('prints per square metre only for tiling', () => {
-    expect(rateUnitSuffix('tiling')).toBe('/m²')
-    expect(rateUnitSuffix('fencing')).toBe('/m')
-    expect(rateUnitSuffix(null)).toBe('/m')
-    expect(rateUnitSuffix(undefined)).toBe('/m')
+  it('prints only from the server unit, never from a trade slug', () => {
+    expect(rateUnitSuffix('m2')).toBe('/m²')
+    expect(rateUnitSuffix('m')).toBe('/m')
+    expect(rateUnitSuffix('item')).toBe('')
+    expect(rateUnitSuffix(null)).toBe('')
+    expect(rateUnitSuffix(undefined)).toBe('')
+    expect(rateUnitSuffix('tiling')).toBe('')
+  })
+
+  it('accepts only m, m2, and item as units', () => {
+    expect(parseRateUnit('m')).toBe('m')
+    expect(parseRateUnit('m2')).toBe('m2')
+    expect(parseRateUnit('item')).toBe('item')
+    expect(parseRateUnit(null)).toBeUndefined()
+    expect(parseRateUnit('tiling')).toBeUndefined()
+  })
+
+  it('omits the rate line for a whole-job price', () => {
+    expect(formatQuoteRate({ ratePerMeter: 15470, unit: 'item' })).toBeNull()
+    expect(formatQuoteRate({ ratePerMeter: 72, unit: 'm2' })).toBe('$72/m²')
+    expect(formatQuoteRate({ ratePerMeter: 152, unit: 'm' })).toBe('$152/m')
+    expect(formatQuoteRate({ ratePerMeter: 520, unit: 'm' })).toBe('$520/m')
+    expect(formatQuoteRate({ ratePerMeter: 520, unit: 'm2' })).toBe('$520/m²')
+    expect(formatQuoteRate({ ratePerMeter: 625, unit: 'm2' })).toBe('$625/m²')
+    expect(formatQuoteRate({ ratePerMeter: 152 })).toBeNull()
   })
 })
 

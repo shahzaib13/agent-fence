@@ -2,6 +2,7 @@ import type {
   ChecklistData,
   ChecklistDisplay,
   ComparisonSummary,
+  RateUnit,
   WorkerMatch,
 } from './fencingChat'
 import type { SuburbPlace } from './places'
@@ -20,6 +21,7 @@ export interface QuoteResultDoc {
   checklistDisplay?: ChecklistDisplay
   checklistComplete?: boolean
   intent?: 'new_quote' | 'compare_quote'
+  unit?: RateUnit | null
 }
 
 export function isQuoteResultReady(doc: QuoteResultDoc) {
