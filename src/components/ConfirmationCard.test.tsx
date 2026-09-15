@@ -13,6 +13,29 @@ const options = [
 ]
 
 describe('ConfirmationCard', () => {
+  it('renders a kitchen brief from checklistAnswered without fencing field names', () => {
+    render(
+      <ConfirmationCard
+        checklistAnswered={[
+          { key: 'suburb', title: 'Suburb', value: 'Berwick' },
+          { key: 'jobType', title: 'Job', value: 'New kitchen' },
+          { key: 'kitchenSize', title: 'Kitchen size', value: 'Medium' },
+          { key: 'supply', title: 'Who supplies', value: 'You supply cabinets' },
+          { key: 'benchtop', title: 'Benchtop', value: 'Caesarstone' },
+        ]}
+        options={options}
+        onSelectOption={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('Suburb: Berwick')).toBeInTheDocument()
+    expect(screen.getByText('Kitchen size: Medium')).toBeInTheDocument()
+    expect(screen.getByText('Benchtop: Caesarstone')).toBeInTheDocument()
+    expect(screen.queryByText(/material/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/length/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/height/i)).not.toBeInTheDocument()
+  })
+
   it('shows the collected brief from checklistAnswered', () => {
     render(<ConfirmationCard checklistAnswered={checklistAnswered} options={options} onSelectOption={() => {}} />)
 

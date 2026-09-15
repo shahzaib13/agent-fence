@@ -18,6 +18,7 @@ const baseComparison: ComparisonSummary = {
       ratePerMeter: 118,
       projectTotalMin: 7200,
       projectTotalMax: 7600,
+      unit: 'm',
       leadTimeWeeksMin: 1,
       leadTimeWeeksMax: 2,
       badges: ['Standard Timber', 'Most Affordable'],
@@ -29,6 +30,7 @@ const baseComparison: ComparisonSummary = {
       ratePerMeter: 145,
       projectTotalMin: 7850,
       projectTotalMax: 8200,
+      unit: 'm',
       leadTimeWeeksMin: 2,
       leadTimeWeeksMax: 3,
       badges: ['Standard Timber'],
@@ -40,6 +42,7 @@ const baseComparison: ComparisonSummary = {
       ratePerMeter: 175,
       projectTotalMin: 8400,
       projectTotalMax: 9100,
+      unit: 'm',
       leadTimeWeeksMin: 4,
       leadTimeWeeksMax: 6,
       badges: ['Standard Timber'],
@@ -137,16 +140,128 @@ describe('QuoteComparisonPage', () => {
   })
 
   it('prints tiling rates per square metre, not per metre', () => {
+    const tilingQuotes = baseComparison.quotes.map((quote) => ({ ...quote, unit: 'm2' as const }))
     render(
       <QuoteComparisonPage
         quoteSession={{ ...quoteSession, trade: 'tiling' }}
-        comparison={baseComparison}
+        comparison={{ ...baseComparison, quotes: tilingQuotes }}
         onBack={vi.fn()}
       />,
     )
 
     expect(screen.getByText('$118/m² rate')).toBeInTheDocument()
     expect(screen.queryByText('$118/m rate')).not.toBeInTheDocument()
+  })
+
+  it('prints a retaining wall rate per linear metre, not per square metre', () => {
+    const wallQuotes = baseComparison.quotes.map((quote) => ({ ...quote, ratePerMeter: 520, unit: 'm' as const }))
+    render(
+      <QuoteComparisonPage
+        quoteSession={{ ...quoteSession, trade: 'retaining_wall' }}
+        comparison={{ ...baseComparison, quotes: wallQuotes }}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getAllByText('$520/m rate').length).toBeGreaterThan(0)
+    expect(screen.queryByText('$520/m² rate')).not.toBeInTheDocument()
+  })
+
+  it('prints a decking rate per square metre and does not recompute the total', () => {
+    const deckQuote = {
+      ...baseComparison.quotes[0],
+      businessName: 'Berwick Decks',
+      ratePerMeter: 625,
+      projectTotalMin: 19815,
+      projectTotalMax: 19815,
+      unit: 'm2' as const,
+      notes: 'incl. GST · 12m of balustrade included · Stairs included',
+      badges: ['incl. GST · 12m of balustrade included · Stairs included'],
+    }
+    render(
+      <QuoteComparisonPage
+        quoteSession={{ ...quoteSession, trade: 'decking' }}
+        comparison={{ ...baseComparison, quotes: [deckQuote] }}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('$625/m² rate')).toBeInTheDocument()
+    expect(screen.queryByText('$625/m rate')).not.toBeInTheDocument()
+    expect(screen.getByText('$19,815')).toBeInTheDocument()
+    expect(screen.queryByText('$18,750')).not.toBeInTheDocument()
+    expect(screen.getByText('incl. GST · 12m of balustrade included · Stairs included')).toBeInTheDocument()
+  })
+
+  it('does not infer a per-metre rate from the trade slug when unit is missing', () => {
+    const noUnit = { ...baseComparison.quotes[0], unit: undefined }
+    render(
+      <QuoteComparisonPage
+        quoteSession={{ ...quoteSession, trade: 'fencing' }}
+        comparison={{ ...baseComparison, quotes: [noUnit] }}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('$118/m rate')).not.toBeInTheDocument()
+    expect(screen.queryByText('$118/m² rate')).not.toBeInTheDocument()
+  })
+
+  it('does not print a kitchen whole-job price as a per-metre rate', () => {
+    const kitchenQuote = {
+      ...baseComparison.quotes[0],
+      ratePerMeter: 15470,
+      projectTotalMin: 15470,
+      projectTotalMax: 15470,
+      notes: '2-pack, 3.2m run, Caesarstone',
+      badges: ['Services Berwick', '2-pack, 3.2m run, Caesarstone'],
+      unit: 'item' as const,
+    }
+    render(
+      <QuoteComparisonPage
+        quoteSession={{ ...quoteSession, trade: 'kitchen' }}
+        comparison={{ ...baseComparison, quotes: [kitchenQuote] }}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('$15,470')).toBeInTheDocument()
+    expect(screen.getByText('2-pack, 3.2m run, Caesarstone')).toBeInTheDocument()
+    expect(screen.queryByText('$15470/m rate')).not.toBeInTheDocument()
+    expect(screen.queryByText('$15,470/m rate')).not.toBeInTheDocument()
+    expect(screen.queryByText(/per metre/i)).not.toBeInTheDocument()
+  })
+
+  it('prints a home renovation total with every badge and no per-metre rate', () => {
+    const renovationQuote = {
+      ...baseComparison.quotes[0],
+      ratePerMeter: 18400,
+      projectTotalMin: 18400,
+      projectTotalMax: 18400,
+      notes: '',
+      badges: [
+        'Services Berwick',
+        'Floor tiling measured on site, not in this price',
+        'Carpentry charged by the hour on site, not in this price',
+      ],
+      unit: 'item' as const,
+    }
+    render(
+      <QuoteComparisonPage
+        quoteSession={{ ...quoteSession, trade: 'home_renovation' }}
+        comparison={{ ...baseComparison, quotes: [renovationQuote] }}
+        onBack={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('$18,400')).toBeInTheDocument()
+    expect(screen.getByText('Floor tiling measured on site, not in this price')).toBeInTheDocument()
+    expect(screen.getByText('Carpentry charged by the hour on site, not in this price')).toBeInTheDocument()
+    expect(screen.getByText('Services Berwick')).toBeInTheDocument()
+    expect(screen.queryByText('$18400/m rate')).not.toBeInTheDocument()
+    expect(screen.queryByText('$18,400/m rate')).not.toBeInTheDocument()
+    expect(screen.queryByText(/\/m rate/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/\/m² rate/)).not.toBeInTheDocument()
   })
 
   it('shows neither a lead time nor a proceed button', () => {

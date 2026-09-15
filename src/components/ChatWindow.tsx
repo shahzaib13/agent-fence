@@ -13,7 +13,7 @@ import {
 } from '../services/fencingChat'
 import type { SuburbPlace, SuburbSuggestion } from '../services/places'
 import type { ChecklistAnsweredItem } from '../services/voice'
-import { checklistFieldLabel } from '../utils/checklist'
+import { collapsedChipTitle } from '../utils/checklist'
 import { useVoiceLiveLines } from '../utils/voiceLiveStore'
 import { AlternativeOffers } from './AlternativeOffers'
 import { AnswerPhotos } from './AnswerPhotos'
@@ -54,8 +54,12 @@ export interface ChatMessage {
   // bills as part of the same Places session rather than opening a second one.
   sessionToken?: string
   // Which checklist field that pick filled in. Only knowable once the *next* response comes
-  // back (Home diffs the checklist), so the collapsed chip shows the bare label until then.
+  // back (Home diffs the checklist). The printed title is `answeredTitle` from the server.
   answeredField?: string
+  /** Server-authored label for the collapsed chip — never a raw kitchenSize-style slug. */
+  answeredTitle?: string
+  /** Trade picker (`trade: null`) — the tap is not a checklist field. */
+  isTradePicker?: boolean
   isError?: boolean
   /** When `isError`, whether to show Try again. Omitted on older threads → treat as retryable. */
   retryable?: boolean
@@ -79,90 +83,63 @@ function CheckBadge() {
   )
 }
 
-// `__other__` is never a button — the box sits next to the real tiles. Fencing and tiling
-// accept any free-text answer; other trades still use a numeric length box.
+// `__other__` is never a button — the box sits next to the real tiles. Always free text:
+// the server converts "5m x 4m" / "270 sq ft" itself. There is nothing for the client to parse.
 function CustomAnswer({
-  mode,
   disabled,
   autoFocus,
   onSubmit,
 }: {
-  mode: 'numeric' | 'text'
   disabled: boolean
   autoFocus?: boolean
-  onSubmit: (value: string | number) => void
+  onSubmit: (value: string) => void
 }) {
   const [value, setValue] = useState('')
-  const metres = Number(value)
-  const isNumericUsable = Number.isFinite(metres) && metres > 0 && metres <= 1000
+  const fieldRef = useRef<HTMLTextAreaElement>(null)
   const isTextUsable = value.trim().length > 0
 
-  if (mode === 'text') {
-    return (
-      <form
-        onSubmit={(event) => {
-          event.preventDefault()
-          const trimmed = value.trim()
-          if (isTextUsable && !disabled) onSubmit(trimmed)
-        }}
-        className="flex flex-wrap items-center gap-2.5 animate-[card-rise_0.3s_ease-out_backwards]"
-      >
-        <label htmlFor="custom-answer" className="sr-only">
-          Your answer
-        </label>
-        <input
-          id="custom-answer"
-          type="text"
-          autoFocus={autoFocus}
-          disabled={disabled}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder="Type your answer"
-          className="min-w-48 flex-1 rounded-2xl border border-[#062D27]/40 bg-white px-4 py-3 text-sm font-medium text-[#062D27] placeholder:text-gray-300 focus:outline-none focus:shadow-[0_4px_20px_rgba(6,45,39,0.06)] disabled:cursor-not-allowed"
-        />
-        <button
-          type="submit"
-          disabled={!isTextUsable || disabled}
-          className="rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
-        >
-          Use this
-        </button>
-      </form>
-    )
-  }
+  // Same bargain as the composer: grow with the text up to the max height the class sets,
+  // then scroll. Resetting to `auto` first is what lets it shrink back on delete.
+  useLayoutEffect(() => {
+    const el = fieldRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [value])
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault()
-        if (isNumericUsable && !disabled) onSubmit(metres)
+        const trimmed = value.trim()
+        if (isTextUsable && !disabled) onSubmit(trimmed)
       }}
-      className="flex flex-wrap items-center gap-2.5 animate-[card-rise_0.3s_ease-out_backwards]"
+      className="flex items-end gap-2.5 animate-[card-rise_0.3s_ease-out_backwards]"
     >
-      <label htmlFor="custom-length" className="sr-only">
-        Length in metres
+      <label htmlFor="custom-answer" className="sr-only">
+        Your answer
       </label>
-      <div className="flex items-center gap-2 rounded-2xl border border-[#062D27]/40 bg-white py-2.5 pr-3 pl-4 focus-within:shadow-[0_4px_20px_rgba(6,45,39,0.06)]">
-        <input
-          id="custom-length"
-          type="number"
-          inputMode="decimal"
-          min={1}
-          max={1000}
-          step="any"
-          autoFocus={autoFocus}
-          disabled={disabled}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder="27"
-          className="w-24 border-0 bg-transparent text-sm font-medium text-[#062D27] placeholder:text-gray-300 focus:outline-none"
-        />
-        <span className="text-sm text-gray-400">metres</span>
-      </div>
+      <textarea
+        id="custom-answer"
+        ref={fieldRef}
+        rows={1}
+        autoFocus={autoFocus}
+        disabled={disabled}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            event.currentTarget.form?.requestSubmit()
+          }
+        }}
+        placeholder="Type your answer"
+        className="max-h-24 min-w-0 flex-1 resize-none overflow-y-auto rounded-2xl border border-[#062D27]/40 bg-white px-4 py-3 text-sm font-medium leading-relaxed text-[#062D27] placeholder:text-gray-300 focus:outline-none focus:shadow-[0_4px_20px_rgba(6,45,39,0.06)] disabled:cursor-not-allowed"
+      />
       <button
         type="submit"
-        disabled={!isNumericUsable || disabled}
-        className="rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
+        disabled={!isTextUsable || disabled}
+        className="shrink-0 rounded-2xl bg-[#062D27] px-4 py-3 text-sm font-semibold text-white transition-all duration-150 hover:bg-[#0a3f37] active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27]"
       >
         Use this
       </button>
@@ -173,25 +150,25 @@ function CustomAnswer({
 function OptionRow({
   message,
   disabled,
-  otherInputMode,
   onSelect,
 }: {
   message: ChatMessage
   disabled: boolean
-  otherInputMode: 'numeric' | 'text'
   onSelect: (option: ChatOption) => void
 }) {
   const answered = message.answered
+  // `__more__` is an ordinary chip (next page). Only `__other__` is stripped into a text box.
   const choices = (message.options ?? []).filter((option) => String(option.value) !== OTHER_OPTION_VALUE)
   const hasOther = (message.options ?? []).some((option) => String(option.value) === OTHER_OPTION_VALUE)
 
   if (answered) {
     const pickedFromRow = choices.find((option) => String(option.value) === String(answered.value))
+    const title = message.answeredTitle?.trim() || collapsedChipTitle(message.answeredField)
     return (
       <span className="inline-flex items-center gap-2.5 rounded-2xl border border-[#062D27] bg-[#EFF6F5] px-4 py-2.5 animate-[pop-in_0.35s_ease-out]">
         <CheckBadge />
         <span className="text-sm font-semibold text-[#062D27]">
-          {message.answeredField ? `${checklistFieldLabel(message.answeredField)}: ` : ''}
+          {title ? `${title}: ` : ''}
           {pickedFromRow?.label ?? answered.label}
         </span>
       </span>
@@ -217,12 +194,9 @@ function OptionRow({
       )}
       {hasOther && (
         <CustomAnswer
-          mode={otherInputMode}
           disabled={disabled}
           autoFocus={choices.length === 0}
-          onSubmit={(value) =>
-            onSelect(typeof value === 'number' ? { label: `${value}m`, value } : { label: value, value })
-          }
+          onSubmit={(value) => onSelect({ label: value, value })}
         />
       )}
     </div>
@@ -283,7 +257,6 @@ function AiTurn({
   animate,
   disabled,
   isLast,
-  otherInputMode,
   onSelect,
   onSelectBudget,
   onSelectPlace,
@@ -298,7 +271,6 @@ function AiTurn({
   animate: boolean
   disabled: boolean
   isLast: boolean
-  otherInputMode: 'numeric' | 'text'
   onSelect: (option: ChatOption) => void
   onSelectBudget?: (source: AnswerSource) => void
   onSelectPlace: (place: SuburbPlace) => void
@@ -429,7 +401,7 @@ function AiTurn({
           />
         )}
         {showOptionRow && (
-          <OptionRow message={optionMessage} disabled={disabled} otherInputMode={otherInputMode} onSelect={onSelect} />
+          <OptionRow message={optionMessage} disabled={disabled} onSelect={onSelect} />
         )}
 
         {/* A suburb turn answers itself through the picker, so the composer never has to carry
@@ -438,7 +410,7 @@ function AiTurn({
           <span className="inline-flex items-center gap-2.5 rounded-2xl border border-[#062D27] bg-[#EFF6F5] px-4 py-2.5 animate-[pop-in_0.35s_ease-out]">
             <CheckBadge />
             <span className="text-sm font-semibold text-[#062D27]">
-              {checklistFieldLabel('suburb')}: {message.answered.label}
+              Suburb: {message.answered.label}
             </span>
           </span>
         )}
@@ -553,7 +525,6 @@ export function ChatWindow({
   messages,
   isLoading,
   pendingFiles,
-  trade,
   voiceStatus,
   voicePreparing,
   voicePreparingLabel,
@@ -590,7 +561,6 @@ export function ChatWindow({
   onStartVoice?: () => void
   onHangUp?: () => void
 }) {
-  const otherInputMode = trade === 'fencing' || trade === 'tiling' ? 'text' : 'numeric'
   const controlsDisabled = isLoading || !!interactionDisabled
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -648,7 +618,6 @@ export function ChatWindow({
                 animate={message.id === lastAiId && !message.isVoice}
                 disabled={controlsDisabled}
                 isLast={message.id === lastAiId}
-                otherInputMode={otherInputMode}
                 onSelect={(option) => onSelectOption(message.id, option)}
                 onSelectBudget={onSelectBudget ? (source) => onSelectBudget(message.id, source) : undefined}
                 onSelectPlace={(place) => onSelectPlace(message.id, place)}

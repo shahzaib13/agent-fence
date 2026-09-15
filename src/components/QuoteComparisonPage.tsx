@@ -132,7 +132,7 @@ export function QuoteComparisonPage({
             </p>
           ) : (
             comparison.quotes.map((quote) => (
-              <QuoteCard key={quote.businessName} quote={quote} trade={quoteSession.trade} />
+              <QuoteCard key={quote.businessName} quote={quote} />
             ))
           )}
         </div>

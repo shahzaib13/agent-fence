@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ChecklistData, ChecklistDisplay } from '../services/fencingChat'
-import { BRIEF_HIDDEN_KEYS, checklistFieldLabel, formatChecklistValue, showsInBrief } from '../utils/checklist'
+import { BRIEF_HIDDEN_KEYS } from '../utils/checklist'
 
 function BriefRow({ done, children }: { done: boolean; children: ReactNode }) {
   return (
@@ -52,20 +52,8 @@ export function ChecklistDisplayRows({ display }: { display: ChecklistDisplay })
   )
 }
 
-export function ChecklistRows({ checklist }: { checklist: ChecklistData }) {
-  return (
-    <ul className="flex flex-col gap-4">
-      {Object.entries(checklist)
-        .filter(([key]) => showsInBrief(key, checklist))
-        .map(([key, value]) => {
-          const done = value !== null
-          return (
-            <BriefRow key={key} done={done}>
-              {checklistFieldLabel(key)}
-              {done ? `: ${formatChecklistValue(key, value)}` : ''}
-            </BriefRow>
-          )
-        })}
-    </ul>
-  )
+export function ChecklistRows(_props: { checklist: ChecklistData }) {
+  // Fallback has no server titles. Printing `kitchenSize` is worse than an empty list —
+  // the live panel uses ChecklistDisplayRows / ChecklistAnsweredRows instead.
+  return <ul className="flex flex-col gap-4" />
 }

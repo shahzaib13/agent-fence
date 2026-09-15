@@ -1,27 +1,33 @@
 import { useEffect, useState } from 'react'
-import type { ChecklistData } from '../services/fencingChat'
+import type { ChecklistAnsweredItem } from '../services/voice'
+import type { ChecklistData, ChecklistDisplay } from '../services/fencingChat'
 import { CARD_STEP_MS, getActiveCardIndex } from '../utils/checklist'
-import { ChecklistRows } from './ChecklistRows'
+import { ChecklistAnsweredRows, ChecklistDisplayRows, ChecklistRows } from './ChecklistRows'
 
 type CardState = 'done' | 'active' | 'pending'
 
-// Chip labels ("Fence", "Retaining Wall") and backend slugs ("fencing", "retaining-wall")
+// Chip labels ("Fence", "Retaining Wall") and backend slugs ("fencing", "retaining_wall")
 // both land here so the thinking copy names the job they actually asked for.
 const JOB_KIND: Record<string, string> = {
   fence: 'fencing',
   fencing: 'fencing',
   tile: 'tiling',
   tiling: 'tiling',
+  kitchen: 'kitchen',
   deck: 'decking',
   decking: 'decking',
   'retaining wall': 'retaining wall',
   'retaining-wall': 'retaining wall',
+  retaining_wall: 'retaining wall',
+  'home renovation': 'home renovation',
+  'home-renovation': 'home renovation',
+  home_renovation: 'home renovation',
 }
 
 function jobKind(trade?: string | null, selectedType?: string | null) {
-  const raw = (trade || selectedType || '').trim().toLowerCase().replace(/_/g, '-')
+  const raw = (trade || selectedType || '').trim().toLowerCase()
   if (!raw) return ''
-  return JOB_KIND[raw] ?? raw.replace(/-/g, ' ')
+  return JOB_KIND[raw] ?? JOB_KIND[raw.replace(/_/g, '-')] ?? raw.replace(/[_-]/g, ' ')
 }
 
 function buildFirstCardLabel(description: string) {
@@ -33,9 +39,23 @@ function buildFirstCardLabel(description: string) {
 // What the expanded/active card shows inside itself — the real checklist for the "gathering
 // details" card (index 1), a plain "still working" pulse for the others (there's no finer-grained
 // real data to show for those, so this stays honest rather than inventing fake sub-steps).
-function ActiveCardDetail({ index, checklist }: { index: number; checklist: ChecklistData | null }) {
-  if (index === 1 && checklist) {
-    return <ChecklistRows checklist={checklist} />
+function ActiveCardDetail({
+  index,
+  checklist,
+  checklistAnswered,
+  checklistDisplay,
+}: {
+  index: number
+  checklist: ChecklistData | null
+  checklistAnswered?: ChecklistAnsweredItem[]
+  checklistDisplay?: ChecklistDisplay | null
+}) {
+  if (index === 1) {
+    if (checklistAnswered?.length) return <ChecklistAnsweredRows answered={checklistAnswered} />
+    if (checklistDisplay && Object.keys(checklistDisplay).length > 0) {
+      return <ChecklistDisplayRows display={checklistDisplay} />
+    }
+    if (checklist) return <ChecklistRows checklist={checklist} />
   }
   return (
     <div className="flex items-center gap-2 text-sm text-gray-400">
@@ -50,6 +70,8 @@ function ActiveCardDetail({ index, checklist }: { index: number; checklist: Chec
 export function ThinkingScreen({
   description,
   checklist = null,
+  checklistAnswered,
+  checklistDisplay,
   checklistComplete = false,
   awaitingResult = false,
   intent,
@@ -58,6 +80,8 @@ export function ThinkingScreen({
 }: {
   description: string
   checklist?: ChecklistData | null
+  checklistAnswered?: ChecklistAnsweredItem[]
+  checklistDisplay?: ChecklistDisplay | null
   checklistComplete?: boolean
   awaitingResult?: boolean
   intent?: 'new_quote' | 'compare_quote'
@@ -164,7 +188,12 @@ export function ThinkingScreen({
               >
                 <div className="min-h-0 overflow-hidden">
                   <div className="pt-4 pl-10">
-                    <ActiveCardDetail index={i} checklist={checklist} />
+                    <ActiveCardDetail
+                      index={i}
+                      checklist={checklist}
+                      checklistAnswered={checklistAnswered}
+                      checklistDisplay={checklistDisplay}
+                    />
                   </div>
                 </div>
               </div>

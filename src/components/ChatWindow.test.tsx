@@ -2,6 +2,7 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { setVoiceLiveLines } from '../utils/voiceLiveStore'
+import { MORE_OPTION_VALUE } from '../services/fencingChat'
 import { ChatWindow, type ChatMessage } from './ChatWindow'
 
 const question: ChatMessage = {
@@ -114,6 +115,50 @@ describe('ChatWindow', () => {
     expect(onSelectOption).toHaveBeenCalledWith('ai-1', question.options?.[1])
   })
 
+  it('renders More options as a chip and sends __more__, not a text box', async () => {
+    const user = userEvent.setup()
+    const onSelectOption = vi.fn()
+    renderWindow(
+      [
+        {
+          id: 'ai-tiles',
+          role: 'ai',
+          text: 'What kind of tiles?',
+          options: [
+            { label: 'Ceramic', value: 'ceramic' },
+            { label: 'More options', value: MORE_OPTION_VALUE },
+            { label: 'Other', value: '__other__' },
+          ],
+        },
+      ],
+      false,
+      { onSelectOption, trade: 'tiling' },
+    )
+
+    expect(await screen.findByRole('button', { name: 'More options' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'More options' }))
+    expect(onSelectOption).toHaveBeenCalledWith('ai-tiles', { label: 'More options', value: MORE_OPTION_VALUE })
+  })
+
+  it('labels a collapsed kitchen chip from the server title, not the slug', async () => {
+    renderWindow([
+      {
+        id: 'ai-size',
+        role: 'ai',
+        text: 'How big is the kitchen?',
+        options: [{ label: 'Medium', value: 'medium' }],
+        answered: { label: 'Medium', value: 'medium' },
+        answeredField: 'kitchenSize',
+        answeredTitle: 'Kitchen size',
+      },
+      { id: 'ai-next', role: 'ai', text: 'What kind of benchtop?' },
+    ])
+
+    expect(screen.getByText('Kitchen size: Medium')).toBeInTheDocument()
+    expect(screen.queryByText(/kitchenSize/i)).not.toBeInTheDocument()
+  })
+
   it('locks the composer and the tiles while a reply is in flight', async () => {
     renderWindow([question], true)
 
@@ -191,12 +236,47 @@ describe('ChatWindow', () => {
       })
     })
 
-    it('opens a metres box instead of sending "Other" anywhere', async () => {
+    it('opens a free-text box for retaining wall Other answers without an Other button', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption, trade: 'retaining_wall' })
+      const user = userEvent.setup()
+
+      expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+      expect(await screen.findByLabelText(/your answer/i)).toBeInTheDocument()
+      expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
+      await user.type(screen.getByLabelText(/your answer/i), 'timber sleepers')
+      await user.click(screen.getByRole('button', { name: /use this/i }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', {
+        label: 'timber sleepers',
+        value: 'timber sleepers',
+      })
+    })
+
+    it('opens a free-text box for decking Other answers without an Other button', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption, trade: 'decking' })
+      const user = userEvent.setup()
+
+      expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
+      expect(await screen.findByLabelText(/your answer/i)).toBeInTheDocument()
+      expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
+      await user.type(screen.getByLabelText(/your answer/i), 'spotted gum')
+      await user.click(screen.getByRole('button', { name: /use this/i }))
+
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', {
+        label: 'spotted gum',
+        value: 'spotted gum',
+      })
+    })
+
+    it('opens a free-text box instead of sending "Other" anywhere, even before a trade is locked', async () => {
       const onSelectOption = vi.fn()
       renderWindow([lengthQuestion], false, { onSelectOption })
 
       expect(screen.queryByRole('button', { name: 'Other' })).not.toBeInTheDocument()
-      expect(await screen.findByLabelText(/length in metres/i)).toBeInTheDocument()
+      expect(await screen.findByLabelText(/your answer/i)).toBeInTheDocument()
+      expect(screen.queryByLabelText(/length in metres/i)).not.toBeInTheDocument()
       expect(onSelectOption).not.toHaveBeenCalled()
     })
 
@@ -205,35 +285,33 @@ describe('ChatWindow', () => {
       renderWindow([lengthQuestion], false, { onSelectOption })
       const user = userEvent.setup()
 
-      await user.type(await screen.findByLabelText(/length in metres/i), '27')
+      await user.type(await screen.findByLabelText(/your answer/i), '5m x 4m')
       await user.click(screen.getByRole('button', { name: /use this/i }))
 
-      expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: '27m', value: 27 })
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: '5m x 4m', value: '5m x 4m' })
     })
 
-    it('refuses a length that cannot be a fence', async () => {
-      renderWindow([lengthQuestion], false)
+    it('wraps in a textarea and submits on Enter, not Shift+Enter', async () => {
+      const onSelectOption = vi.fn()
+      renderWindow([lengthQuestion], false, { onSelectOption })
       const user = userEvent.setup()
 
-      const box = await screen.findByLabelText(/length in metres/i)
+      const field = await screen.findByLabelText(/your answer/i)
+      expect(field.tagName).toBe('TEXTAREA')
 
-      await user.type(box, '0')
-      expect(screen.getByRole('button', { name: /use this/i })).toBeDisabled()
+      await user.type(field, 'first{Shift>}{Enter}{/Shift}second')
+      expect(onSelectOption).not.toHaveBeenCalled()
+      expect(field).toHaveValue('first\nsecond')
 
-      await user.clear(box)
-      await user.type(box, '5000')
-      expect(screen.getByRole('button', { name: /use this/i })).toBeDisabled()
-
-      await user.clear(box)
-      await user.type(box, '27.5')
-      expect(screen.getByRole('button', { name: /use this/i })).toBeEnabled()
+      await user.type(field, '{Enter}')
+      expect(onSelectOption).toHaveBeenCalledWith('ai-length', { label: 'first\nsecond', value: 'first\nsecond' })
     })
 
     it('keeps the real tiles next to the free-text box', async () => {
       renderWindow([lengthQuestion], false)
 
       expect(await screen.findByRole('button', { name: '10m' })).toBeInTheDocument()
-      expect(screen.getByLabelText(/length in metres/i)).toBeInTheDocument()
+      expect(screen.getByLabelText(/your answer/i)).toBeInTheDocument()
       expect(screen.queryByRole('button', { name: /back to options/i })).not.toBeInTheDocument()
     })
   })

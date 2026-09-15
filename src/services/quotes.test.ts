@@ -224,23 +224,99 @@ describe('quotes', () => {
   })
 
   describe('quoteTitle', () => {
-    it('names a quote by what it is for', () => {
-      expect(quoteTitle(session({ checklist: { fenceType: 'Colorbond', suburb: 'Pakenham, VIC 3810' } }))).toBe(
-        'Colorbond fence, Pakenham, VIC 3810',
-      )
-      expect(quoteTitle(session({ checklist: { suburb: 'Pakenham' } }))).toBe('Fence in Pakenham')
+    const published = [
+      { trade: 'fencing', label: 'fencing' },
+      { trade: 'tiling', label: 'tiling' },
+      { trade: 'kitchen', label: 'kitchen fitting' },
+      { trade: 'retaining_wall', label: 'retaining wall' },
+      { trade: 'decking', label: 'decking' },
+      { trade: 'home_renovation', label: 'home renovation' },
+    ]
+
+    it('names a quote from the published trade label and suburb, never as a fence when trade is missing', () => {
+      expect(
+        quoteTitle(
+          session({ trade: 'fencing', checklist: { fenceType: 'Colorbond', suburb: 'Pakenham, VIC 3810' } }),
+          published,
+        ),
+      ).toBe('Fencing in Pakenham, VIC 3810')
+      expect(quoteTitle(session({ checklist: { suburb: 'Pakenham' } }), published)).toBe('Quote in Pakenham')
     })
 
-    it('names a tiling quote by job and suburb, not as a fence', () => {
+    it('names a tiling quote by the published label, not by jobType and not as a fence', () => {
       expect(
         quoteTitle(
           session({
             trade: 'tiling',
             checklist: { jobType: 'bathroom', suburb: 'Berwick, VIC 3806' },
           }),
+          published,
         ),
-      ).toBe('bathroom tiling, Berwick, VIC 3806')
-      expect(quoteTitle(session({ trade: 'tiling', checklist: { suburb: 'Berwick' } }))).toBe('Tiling in Berwick')
+      ).toBe('Tiling in Berwick, VIC 3806')
+      expect(quoteTitle(session({ trade: 'tiling', checklist: { suburb: 'Berwick' } }), published)).toBe(
+        'Tiling in Berwick',
+      )
+    })
+
+    it('names a kitchen quote from the published label, not a local kitchen→Kitchen map', () => {
+      expect(
+        quoteTitle(
+          session({
+            trade: 'kitchen',
+            checklist: { jobType: 'new', suburb: 'Berwick, VIC 3806' },
+          }),
+          published,
+        ),
+      ).toBe('Kitchen Fitting in Berwick, VIC 3806')
+      expect(quoteTitle(session({ trade: 'kitchen', checklist: { suburb: 'Berwick' } }), published)).toBe(
+        'Kitchen Fitting in Berwick',
+      )
+    })
+
+    it('names a retaining wall quote from the published label, including the hyphen alias', () => {
+      expect(quoteTitle(session({ trade: 'retaining_wall', checklist: { suburb: 'Berwick, VIC 3806' } }), published)).toBe(
+        'Retaining Wall in Berwick, VIC 3806',
+      )
+      expect(quoteTitle(session({ trade: 'retaining-wall', checklist: { suburb: 'Berwick' } }), published)).toBe(
+        'Retaining Wall in Berwick',
+      )
+    })
+
+    it('names a decking quote by the published label, not by the board and not as a fence', () => {
+      expect(
+        quoteTitle(
+          session({
+            trade: 'decking',
+            checklist: { material: 'Merbau', suburb: 'Berwick, VIC 3806' },
+          }),
+          published,
+        ),
+      ).toBe('Decking in Berwick, VIC 3806')
+      expect(quoteTitle(session({ trade: 'decking', checklist: { suburb: 'Berwick' } }), published)).toBe(
+        'Decking in Berwick',
+      )
+    })
+
+    it('names a home renovation quote from the published label, not as a fence', () => {
+      expect(
+        quoteTitle(
+          session({
+            trade: 'home_renovation',
+            checklist: { room: 'bathroom', suburb: 'Berwick, VIC 3806' },
+          }),
+          published,
+        ),
+      ).toBe('Home Renovation in Berwick, VIC 3806')
+      expect(quoteTitle(session({ trade: 'home_renovation', checklist: { suburb: 'Berwick' } }), published)).toBe(
+        'Home Renovation in Berwick',
+      )
+    })
+
+    it('does not invent a title from the slug when the trade is missing from the published list', () => {
+      expect(quoteTitle(session({ trade: 'kitchen', checklist: { suburb: 'Berwick' } }))).toBe('Quote in Berwick')
+      expect(quoteTitle(session({ trade: 'solar', checklist: { suburb: 'Berwick' } }), published)).toBe(
+        'Quote in Berwick',
+      )
     })
 
     it('falls back to what the customer first asked for, then to a placeholder', () => {

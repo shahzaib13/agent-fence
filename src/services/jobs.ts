@@ -11,13 +11,7 @@
 // documents exactly, so both sources of leads read the same way downstream.
 import type { SuburbPlace } from './places'
 import { getDb } from './firebase'
-
-const TRADE_META: Record<string, { category: string; title: string }> = {
-  fencing: { category: 'Fencing', title: 'Fence Installation' },
-  tiling: { category: 'Tiling', title: 'Tiling Job' },
-  decking: { category: 'Decking', title: 'Decking Installation' },
-  'retaining-wall': { category: 'Retaining Wall', title: 'Retaining Wall Installation' },
-}
+import { labelForClientTrade, PUBLISHED_CLIENT_TRADES } from './fencingChat'
 
 /** How a lead from this flow is told apart from one typed into the web form. */
 const SOURCE = 'ai_agent'
@@ -46,7 +40,7 @@ export interface JobLead {
   sessionId: string
   /** Where the PDF of that conversation lives. Null when it could not be produced. */
   aiChatPdfUrl: string | null
-  /** Backend/chip trade slug (`fencing`, `tiling`, `decking`, `retaining-wall`). */
+  /** Backend/chip trade slug from GET /client/trades (`fencing`, `home_renovation`, …). */
   trade?: string | null
 }
 
@@ -149,6 +143,18 @@ export async function resolveAiAutoAccept(params: {
  * generated jobId.
  */
 export async function submitJob(lead: JobLead): Promise<string> {
+  const trade = typeof lead.trade === 'string' ? lead.trade.trim() : ''
+  if (!trade) {
+    throw new Error('This quote never locked a trade, so the lead was not posted. Start a new quote.')
+  }
+
+  const words = labelForClientTrade(trade, PUBLISHED_CLIENT_TRADES)
+  if (!words) {
+    console.warn(`[submitJob] posting trade "${trade}" which is not in PUBLISHED_CLIENT_TRADES`)
+  }
+  const category = words ?? trade
+  const title = words ?? trade
+
   const [{ doc, GeoPoint, getDoc, serverTimestamp, writeBatch }, { geohashForLocation }, db] = await Promise.all([
     import('firebase/firestore'),
     import('geofire-common'),
@@ -158,10 +164,6 @@ export async function submitJob(lead: JobLead): Promise<string> {
   const { place } = lead
   const phone = phoneDigits(lead.phoneE164)
   const matchedBusinessIds = lead.businesses.map((business) => business.id)
-  // Fall back to fencing when the session never locked a known trade (no chip, backend still
-  // detecting) — posting with a blank/unknown jobType would break the partner site's filters.
-  const trade = lead.trade && TRADE_META[lead.trade] ? lead.trade : 'fencing'
-  const { category, title } = TRADE_META[trade]
 
   // The job id is also the document's id, so an id that is already taken would overwrite
   // somebody else's job rather than fail — five digits collide long before they run out.

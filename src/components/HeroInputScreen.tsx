@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
+import { clientTradeChipLabel, PUBLISHED_CLIENT_TRADES, type ClientTrade } from '../services/fencingChat'
 import { generateId } from '../utils/id'
-
-const PROJECT_TYPES = ['Fence', 'Tiling', 'Deck', 'Pergola', 'Retaining Wall', 'Driveway', 'Bathroom', 'Kitchen', 'Extension']
 
 function IconButton({
   label,
@@ -99,14 +98,17 @@ export function HeroInputScreen({
   onSubmit,
   onStartVoice,
   voiceDisabled,
+  trades = PUBLISHED_CLIENT_TRADES,
 }: {
   description: string
   onDescriptionChange: (v: string) => void
   selectedType: string | null
-  onSelectType: (t: string) => void
+  onSelectType: (chip: ClientTrade) => void
   onSubmit: (quoteFiles: File[]) => void
   onStartVoice?: (quoteFiles: File[]) => void
   voiceDisabled?: boolean
+  /** Frontend-published trades (see {@link PUBLISHED_CLIENT_TRADES}). */
+  trades?: ClientTrade[]
 }) {
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [attachmentError, setAttachmentError] = useState<string | null>(null)
@@ -242,7 +244,7 @@ export function HeroInputScreen({
                 if (description.trim()) onSubmit(pickQuoteFiles())
               }
             }}
-            placeholder="A deck — describe the size, location and finish you're imagining..."
+            placeholder="Describe the job — size, location and finish you're imagining..."
             rows={3}
             className="min-h-30 w-full resize-none border-0 text-xl text-[#062D27] placeholder:text-gray-300 focus:outline-none"
           />
@@ -284,29 +286,32 @@ export function HeroInputScreen({
           </div>
         </div>
 
-        <div className="flex flex-wrap justify-center gap-3">
-          {PROJECT_TYPES.map((type) => {
-            const active = type === selectedType
-            return (
-              <button
-                key={type}
-                type="button"
-                onClick={() => onSelectType(type)}
-                aria-pressed={active}
-                className={`flex items-center gap-2 rounded-full border px-5 py-2 text-sm transition-all duration-150 hover:scale-105 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27] ${
-                  active
-                    ? 'border-[#062D27] bg-[#EFF6F5] font-medium text-[#062D27]'
-                    : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
-                }`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full transition-colors ${active ? 'bg-[#062D27]' : 'bg-gray-300'}`}
-                />
-                {type}
-              </button>
-            )
-          })}
-        </div>
+        {trades.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-3">
+            {trades.map((item) => {
+              const label = clientTradeChipLabel(item.label)
+              const active = label === selectedType
+              return (
+                <button
+                  key={item.trade}
+                  type="button"
+                  onClick={() => onSelectType({ trade: item.trade, label })}
+                  aria-pressed={active}
+                  className={`flex items-center gap-2 rounded-full border px-5 py-2 text-sm transition-all duration-150 hover:scale-105 active:scale-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#062D27] ${
+                    active
+                      ? 'border-[#062D27] bg-[#EFF6F5] font-medium text-[#062D27]'
+                      : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full transition-colors ${active ? 'bg-[#062D27]' : 'bg-gray-300'}`}
+                  />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

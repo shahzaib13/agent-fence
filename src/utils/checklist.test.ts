@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BRIEF_HIDDEN_KEYS, checklistFieldLabel, diffFilledField, formatChecklistValue, getActiveCardIndex, showsInBrief } from './checklist'
+import { BRIEF_HIDDEN_KEYS, collapsedChipTitle, diffFilledField, formatChecklistValue, getActiveCardIndex, showsInBrief } from './checklist'
 
 describe('diffFilledField', () => {
   it('names the field that went from unknown to known', () => {
@@ -27,16 +27,18 @@ describe('diffFilledField', () => {
   })
 })
 
-describe('checklistFieldLabel', () => {
-  it('maps a known key to its human label', () => {
-    expect(checklistFieldLabel('fenceType')).toBe('Fence type')
-    expect(checklistFieldLabel('material')).toBe('Material')
-    expect(checklistFieldLabel('jobType')).toBe('Job')
-    expect(checklistFieldLabel('areaSqm')).toBe('Area')
+describe('collapsedChipTitle', () => {
+  it('prefers the server title over anything the client might invent', () => {
+    expect(
+      collapsedChipTitle('kitchenSize', [{ key: 'kitchenSize', title: 'Kitchen size', value: 'Medium' }]),
+    ).toBe('Kitchen size')
   })
 
-  it('falls back to the raw key when unrecognised', () => {
-    expect(checklistFieldLabel('futureField')).toBe('futureField')
+  it('never prints a raw slug when the server title is missing', () => {
+    expect(collapsedChipTitle('kitchenSize')).toBeUndefined()
+    expect(collapsedChipTitle('benchtop')).toBeUndefined()
+    expect(collapsedChipTitle('fenceType')).toBeUndefined()
+    expect(collapsedChipTitle('wallType')).toBeUndefined()
   })
 })
 
@@ -46,18 +48,22 @@ describe('formatChecklistValue', () => {
     expect(formatChecklistValue('removeOldFence', false)).toBe('No')
   })
 
-  it('appends units for length/height/price', () => {
-    expect(formatChecklistValue('lengthMeters', 20)).toBe('20m')
-    // a bucket answer reads back as the range the customer picked, not a number from inside it
-    expect(formatChecklistValue('lengthMeters', '20-40')).toBe('20-40m')
-    expect(formatChecklistValue('lengthMeters', '40+')).toBe('40m+')
-    expect(formatChecklistValue('heightMm', 1800)).toBe('1800mm')
+  it('does not invent a unit from the field name', () => {
+    expect(formatChecklistValue('lengthMeters', 20)).toBe('20')
+    expect(formatChecklistValue('areaSqm', 20)).toBe('20')
+    expect(formatChecklistValue('heightMm', 1800)).toBe('1800')
     expect(formatChecklistValue('heightKey', '1.8m')).toBe('1.8m')
+  })
+
+  it('uses the response unit when a fallback must format a bare number', () => {
+    expect(formatChecklistValue('lengthMeters', 20, 'm')).toBe('20m')
+    expect(formatChecklistValue('areaSqm', 20, 'm2')).toBe('20m²')
+    expect(formatChecklistValue('kitchenSize', 1, 'item')).toBe('1')
+  })
+
+  it('formats condition slugs and existing prices without appending metres', () => {
     expect(formatChecklistValue('conditions', ['rock', 'sloped'])).toBe('Rocky ground, Sloped ground')
     expect(formatChecklistValue('existingPrice', 2400)).toBe('$2400')
-    expect(formatChecklistValue('areaSqm', 20)).toBe('20m²')
-    expect(formatChecklistValue('areaSqm', '10-20')).toBe('10-20m²')
-    expect(formatChecklistValue('areaSqm', '40+')).toBe('40m²+')
   })
 
   it('returns an empty string for null', () => {
@@ -80,6 +86,13 @@ describe('showsInBrief', () => {
 
   it('hides gateQty when there is no gate type', () => {
     expect(showsInBrief('gateQty', { gateType: 'none', gateQty: null })).toBe(false)
+  })
+
+  it('hides decking follow-ups until those extras are chosen', () => {
+    expect(showsInBrief('balustradeLm', { balustrade: 'none', balustradeLm: null })).toBe(false)
+    expect(showsInBrief('stairFlights', { stairs: 'none', stairFlights: null })).toBe(false)
+    expect(showsInBrief('balustradeLm', { balustrade: 'glass', balustradeLm: null })).toBe(true)
+    expect(showsInBrief('stairFlights', { stairs: 'yes', stairFlights: null })).toBe(true)
   })
 })
 

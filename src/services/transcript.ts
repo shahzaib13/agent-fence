@@ -5,7 +5,7 @@
 //
 // Both the PDF library and Firebase Storage load on demand: a customer who never posts a job
 // should not download either.
-import { BRIEF_HIDDEN_KEYS, checklistFieldLabel, formatChecklistValue } from '../utils/checklist'
+import { BRIEF_HIDDEN_KEYS } from '../utils/checklist'
 import type { QuoteSession } from './quotes'
 
 const PAGE = { width: 595, height: 842 } // A4 at 72dpi, the unit jsPDF uses by default
@@ -48,13 +48,20 @@ function buildPdf(session: QuoteSession, jsPDF: typeof import('jspdf').jsPDF) {
 
   // The brief first: it is what a tradie actually needs, and burying it under a dozen turns of
   // small talk would mean nobody reads it.
-  if (session.checklist) {
+  const answered = session.checklistAnswered
+  const display = session.checklistDisplay
+  if (answered?.length || display) {
     write('The brief', { size: 12, bold: true, gap: 4 })
-    for (const [field, value] of Object.entries(session.checklist)) {
-      if (BRIEF_HIDDEN_KEYS.has(field)) continue
-      if (value === null || value === undefined || value === '') continue
-      if (typeof value === 'object' && !Array.isArray(value)) continue
-      write(`${checklistFieldLabel(field)}: ${formatChecklistValue(field, value)}`, { size: 10, indent: 10 })
+    if (answered?.length) {
+      for (const item of answered) {
+        if (!item.value.trim()) continue
+        write(`${item.title}: ${item.value}`, { size: 10, indent: 10 })
+      }
+    } else if (display) {
+      for (const [field, row] of Object.entries(display)) {
+        if (BRIEF_HIDDEN_KEYS.has(field) || !row.value.trim()) continue
+        write(`${row.title}: ${row.value}`, { size: 10, indent: 10 })
+      }
     }
     y += 14
   }

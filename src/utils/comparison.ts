@@ -1,11 +1,11 @@
-import type { ComparisonSummary, WorkerMatch } from '../services/fencingChat'
+import type { ComparisonSummary, RateUnit, WorkerMatch } from '../services/fencingChat'
 
 // Both intents land on the comparison page now, but the new-quote flow returns plain matches
 // rather than the compare flow's ranked quote objects. The page-level figures it expects are
 // derived from the matches themselves: the "market average" is what these businesses average
 // out to, and each one's saving is measured against that. There is no user-supplied price to
 // beat in this flow, hence `userExistingPrice: null`.
-export function workerMatchesToComparison(results: WorkerMatch[]): ComparisonSummary {
+export function workerMatchesToComparison(results: WorkerMatch[], unit?: RateUnit): ComparisonSummary {
   const totals = results.map((r) => r.estimatedTotal)
   const marketAverage = totals.length > 0 ? Math.round(totals.reduce((sum, t) => sum + t, 0) / totals.length) : null
   // Only ever a *saving* — a match priced above the average has none, and the card says so.
@@ -26,9 +26,22 @@ export function workerMatchesToComparison(results: WorkerMatch[]): ComparisonSum
         // A single estimate, not a range — the card renders one figure when both ends match.
         projectTotalMin: r.estimatedTotal,
         projectTotalMax: r.estimatedTotal,
-        badges: [...(r.suburb ? [`Services ${r.suburb}`] : []), ...(r.notes ? [r.notes] : [])],
+        unit: r.unit ?? unit,
+        notes: r.notes || undefined,
+        badges: r.badges?.length
+          ? r.badges
+          : [...(r.suburb ? [`Services ${r.suburb}`] : []), ...(r.notes ? [r.notes] : [])],
         tag: index === 0 ? 'BEST_VALUE' : null,
         savingsFromAverage: savingsFrom(r.estimatedTotal),
       })),
+  }
+}
+
+/** Copy a response-level `unit` onto quotes that did not carry their own. */
+export function applyRateUnit(comparison: ComparisonSummary, unit?: RateUnit): ComparisonSummary {
+  if (!unit) return comparison
+  return {
+    ...comparison,
+    quotes: comparison.quotes.map((quote) => ({ ...quote, unit: quote.unit ?? unit })),
   }
 }
